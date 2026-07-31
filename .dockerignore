@@ -1,0 +1,16 @@
+.env
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.coverage
+data
+*.db
+*.md
+docs
+tests
+scripts
+.cursor
+.claude

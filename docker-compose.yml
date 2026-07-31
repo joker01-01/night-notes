@@ -1,0 +1,12 @@
+services:
+  ai-daily-review:
+    build: .
+    ports:
+      # 仅映射到本机，避免局域网无鉴权暴露复盘数据与已存 API Key。
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 数据卷只在本机保存，不会被本项目上传。
+      - ./data:/app/data
+    restart: unless-stopped

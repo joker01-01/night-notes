@@ -1,0 +1,10 @@
+# 可提交到版本控制的默认配置；敏感 API Key 请放入 .env 或设置页。
+database_url: sqlite:///./data/ai_daily_review.db
+llm_provider: deepseek
+llm_base_url: https://api.deepseek.com
+# 默认使用 DeepSeek V4-Pro；可在设置页改为 deepseek-v4-flash。
+llm_model: deepseek-v4-pro
+question_time: "21:00"
+context_days: 7
+# 每日四问制已废案：不再作为建会话出题。可留空，或作「可选自问」内部种子（不驱动每晚出题）。
+question_templates: []

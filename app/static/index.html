@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>夜记</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <p class="brand">夜记</p>
+      <nav aria-label="主导航">
+        <button class="nav active" data-view="tonight" type="button">今晚</button>
+        <button class="nav" data-view="week" type="button">本周</button>
+        <button class="nav" data-view="archive" type="button">回看</button>
+        <button class="nav" data-view="settings" type="button">设置</button>
+      </nav>
+      <p class="privacy">只保存在这台电脑里。</p>
+    </aside>
+
+    <main>
+      <!-- 今晚：极轻 -->
+      <section id="tonight" class="view active" data-track="day">
+        <header class="tonight-head">
+          <p class="kicker" id="tonight-kicker"></p>
+          <h1>把今天，留给自己五分钟。</h1>
+        </header>
+        <div id="tonight-notice" class="notice hidden"></div>
+        <div id="loading-rail" class="loading-rail hidden" aria-hidden="true"><span></span></div>
+
+        <div id="tonight-write" class="tonight-write">
+          <label class="sr-only" for="night-pad">今晚随手记</label>
+          <textarea
+            id="night-pad"
+            class="night-pad"
+            rows="10"
+            placeholder="随便写一点。写完就能走。"
+          ></textarea>
+          <div class="actions tonight-actions">
+            <button id="btn-save" class="primary" type="button">存一下</button>
+            <button id="btn-done" class="ghost" type="button">先这样</button>
+          </div>
+          <p class="ask-link-row">
+            <button id="btn-ask" class="link-quiet hidden" type="button">再问自己一句</button>
+          </p>
+        </div>
+
+        <section id="ask-panel" class="ask-panel hidden">
+          <p class="kicker">可选</p>
+          <h2>再问自己一句</h2>
+          <div id="ask-thread" class="ask-thread"></div>
+          <div id="ask-compose" class="ask-compose hidden">
+            <p id="ask-question" class="ask-question"></p>
+            <textarea id="ask-answer" rows="4" placeholder="慢慢写，不用赶…"></textarea>
+          </div>
+          <div id="ask-actions" class="actions"></div>
+        </section>
+
+        <div id="tonight-done" class="tonight-done hidden">
+          <article id="tonight-summary" class="summary"></article>
+          <div class="actions">
+            <button id="btn-rewrite" class="ghost" type="button">再写一遍</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 本周：周问 → 作答 → 极短收束 -->
+      <section id="week" class="view view-week" data-track="week">
+        <header class="week-head">
+          <p class="kicker">本周</p>
+          <h1>这一周，坐下来谈谈。</h1>
+        </header>
+
+        <p id="week-stats" class="muted week-stats" aria-live="polite"></p>
+        <div id="week-strip" class="week-strip" aria-label="近七日"></div>
+
+        <section id="week-traces" class="week-traces">
+          <div class="week-traces-head">
+            <h2>近七日痕迹</h2>
+            <p class="muted">还热的时候，最适合问自己一句。</p>
+          </div>
+          <pre id="week-traces-body" class="traces-body muted">加载中…</pre>
+        </section>
+
+        <section id="week-followup-section" class="week-followup" aria-label="本周问自己">
+          <h2>问自己一句</h2>
+          <p id="week-empty-hint" class="muted week-empty-hint"></p>
+          <p id="week-followup-q" class="week-followup-q hidden"></p>
+          <textarea
+            id="week-followup-a"
+            class="outline-pad week-followup-a hidden"
+            rows="5"
+            placeholder="把当时的感觉/分量写下来。这句是本周最要紧的。"
+          ></textarea>
+          <div class="actions week-followup-actions">
+            <button id="btn-week-ask" class="primary" type="button">问自己一句（本周）</button>
+            <button id="btn-week-save-answer" class="ghost hidden" type="button">存下回答</button>
+            <button id="btn-week-close" class="secondary hidden" type="button">收这一周</button>
+          </div>
+        </section>
+
+        <details id="week-outline-section" class="week-outline-details">
+          <summary>提纲热身（可选）</summary>
+          <ol id="week-outline-list" class="outline-list"></ol>
+          <div class="actions week-draft-actions">
+            <button id="btn-week-save" class="ghost" type="button">存一下提纲</button>
+          </div>
+        </details>
+
+        <div id="week-closed" class="week-closed hidden">
+          <h2>这一周已收好</h2>
+          <div class="week-core-asset">
+            <h3>本周问自己</h3>
+            <p id="week-closed-q" class="week-followup-q"></p>
+            <h3>我的回答</h3>
+            <p id="week-closed-a" class="week-followup-a-view"></p>
+          </div>
+          <h3>收束</h3>
+          <p id="week-overview" class="week-overview"></p>
+          <p id="week-next-focus" class="muted"></p>
+          <p id="week-note" class="muted"></p>
+          <pre id="week-archive-body" class="traces-body hidden"></pre>
+          <div class="actions">
+            <button id="btn-week-ai" class="ghost" type="button">再收一下</button>
+          </div>
+        </div>
+
+        <p id="week-shell-note" class="muted shell-note hidden" aria-live="polite"></p>
+      </section>
+
+      <!-- 回看 -->
+      <section id="archive" class="view">
+        <header class="archive-header">
+          <div>
+            <p class="kicker">回看</p>
+            <h1>曾经写下的夜晚</h1>
+          </div>
+          <div class="month-nav">
+            <button id="prev-month" class="icon" type="button" aria-label="上一月">‹</button>
+            <strong id="month-label"></strong>
+            <button id="next-month" class="icon" type="button" aria-label="下一月">›</button>
+          </div>
+        </header>
+        <div class="weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+        <div id="calendar-grid" class="calendar-grid"></div>
+        <article id="archive-detail" class="summary archive-detail hidden">
+          <h2 id="archive-detail-title" class="archive-detail-title"></h2>
+          <div id="archive-detail-body"></div>
+        </article>
+      </section>
+
+      <!-- 设置 -->
+      <section id="settings" class="view">
+        <header>
+          <p class="kicker">设置</p>
+          <h1>按你的节奏来。</h1>
+        </header>
+        <form id="settings-form" class="settings-form">
+          <label>模型服务商
+            <select name="llm_provider">
+              <option value="deepseek">DeepSeek（默认）</option>
+              <option value="openai_compatible">OpenAI 兼容 API</option>
+              <option value="ollama">本地 Ollama</option>
+            </select>
+          </label>
+          <label>API Key
+            <input name="llm_api_key" type="password" placeholder="留空则保留已有密钥" autocomplete="off" />
+            <small id="key-status"></small>
+          </label>
+          <label>Base URL <input name="llm_base_url" type="url" required /></label>
+          <label>模型名称 <input name="llm_model" required /></label>
+          <div class="settings-row">
+            <label>每晚提问时间<input name="question_time" type="time" required /></label>
+            <label>历史上下文（天）<input name="context_days" type="number" min="1" max="90" required /></label>
+          </div>
+          <label>可选自问参考（每日四问已废案）
+            <textarea name="question_templates" rows="5" placeholder="可留空。不再驱动每晚出题。"></textarea>
+            <small>每日四问制已废案。此处仅作可选内部参考种子，不驱动建会话出题；今晚主路径是自由书写，「再问自己一句」由 AI 临时生成。</small>
+          </label>
+          <button class="primary" type="submit">保存设置</button>
+          <span id="settings-message" class="muted"></span>
+        </form>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
