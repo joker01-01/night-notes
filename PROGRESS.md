@@ -13,6 +13,7 @@
 - Flutter 全平台；FastAPI 原型退役为开放自托管哑存储中继。  
 - 纯设备本地通知；跨周对照最小版纳入重写。  
 - 完整决策表见 `docs/decisions/2026-07-31-publish-architecture.md`。  
+- 周场形态定案（2026-07-31）：选择化主路径 + AI 记忆管家分工 + 承接式上周信号；见 `docs/decisions/2026-07-31-weekly-review-form.md`。  
 
 ## 已完成模块
 
