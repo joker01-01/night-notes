@@ -20,6 +20,8 @@
 | **日（轻）** | 已可用 | 自由书写 → 存一下/先这样；可选「再问自己一句」与短收束。**每日四问制已废案。** |
 | **周（重）** | 已可用 | 近七日痕迹 → 问自己一句（本周）→ 作答 → 极短收束；核心资产是周问+回答 |
 
+> **发布路线（2026-07-31）：** Flutter 全平台重写；本地优先 + 可选端到端加密同步；BYOK 设备端直连 AI；免费核心 + 同步订阅（许可证码）。详见 [PRODUCT.md](PRODUCT.md) 与 [docs/decisions/2026-07-31-publish-architecture.md](docs/decisions/2026-07-31-publish-architecture.md)。
+
 硬规则见 `PRODUCT.md`：**当时感不可事后补全**；**每日四问制已废案**；长提纲与重对话只属于周场。
 
 ## 功能（当前代码）
@@ -81,7 +83,7 @@ python scripts/demo_review_flow.py
 
 ## 数据与隐私
 
-- 本地 SQLite；API Key 存本机设置表，接口不回显密钥。
+- 本地 SQLite；API Key 存本机设置表，接口不回显密钥（原型现状；Flutter 版将改用系统 Keychain/Keystore，Key 永不上云）。
 - 日痕迹供周场消费；周问+回答是周场核心资产。
 
 ## 许可

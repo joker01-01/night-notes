@@ -1,5 +1,6 @@
 # CHANGELOG
 
+- [2026-07-31] feat/定位: 发布路线定案（B 先行 / A 后扩）——本地优先 + 可选端到端加密同步；BYOK 设备端直连 AI；无账号 + 许可证码同步订阅；Flutter 全平台重写，FastAPI 退役为开放自托管哑存储中继；纯设备本地通知；跨周对照最小版纳入重写；原型冻结并提交基线 8e3e9e6。PRODUCT.md 修订 + docs/decisions/2026-07-31-publish-architecture.md 落地。
 - [2026-07-30 09:20] feat/定位: 废案每日四问——建会话仅「今晚正文」、配置/设置不再出四题；周场当时感追问为主路径；PRODUCT/README/demo/pytest 对齐。
 - [2026-07-29 22:50] feat/定位: 周场改追问主路径（问一句→作答→极短收束）；日/周 prompt 去教练压迫；无 Key 周问降级模板轻问；旧周报四键废止。
 - [2026-07-29 20:35] feat: 周场接通 AI——收周默认 use_llm；生成 overview/pattern/next_focus/note；已收周可「请 AI 再过一遍」；无 Key/失败降级本地拼接。
