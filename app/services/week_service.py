@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.llm.prompts import build_week_close_messages, build_week_followup_messages
 from app.llm.providers import LLMProvider
 from app.models.weekly import (
+    COLD_START_QUESTION,
     DEFAULT_WEEK_OUTLINE,
     TEMPLATE_WEEK_FOLLOWUP,
     WeekStatus,
@@ -59,12 +60,51 @@ def _dump_answers(answers: list[dict[str, str]]) -> str:
     return json.dumps(answers, ensure_ascii=False)
 
 
-def _require_trace_days(db: Session, week_start: date) -> tuple[str, int]:
+def _bootstrap_topic(answers: list[dict[str, str]]) -> str:
+    for item in answers:
+        if item.get("question") == COLD_START_QUESTION:
+            return (item.get("answer") or "").strip()
+    return ""
+
+
+def _require_trace_days(
+    db: Session,
+    week_start: date,
+    *,
+    answers: list[dict[str, str]] | None = None,
+) -> tuple[str, int, str]:
     end = week_end_for(week_start)
     traces, trace_days = aggregate_day_traces(db, week_start, end)
+    bootstrap_topic = _bootstrap_topic(answers or [])
+    if trace_days == 0 and bootstrap_topic:
+        return (
+            "（起步模式：用户最近最想搞清楚的一件事）\n"
+            f"{bootstrap_topic}",
+            0,
+            bootstrap_topic,
+        )
     if trace_days < 1:
-        raise ValueError("还几乎没有日痕迹。先去「今晚」写一点再回来。")
-    return traces, trace_days
+        raise ValueError("还几乎没有日痕迹。先写一点，或在下方填一件最近最想搞清楚的事。")
+    return traces, trace_days, ""
+
+
+def _previous_week_signal(db: Session, week_start: date) -> str:
+    previous = db.scalar(
+        select(WeeklyReview)
+        .where(
+            WeeklyReview.week_start < week_start,
+            WeeklyReview.status == WeekStatus.CLOSED.value,
+        )
+        .order_by(WeeklyReview.week_start.desc())
+    )
+    if previous is None:
+        return ""
+    parts = [
+        f"上周周问：{(previous.followup_question or '').strip()}",
+        f"上周回答：{(previous.followup_answer or '').strip()}",
+        f"上周下一步：{(previous.next_focus or '').strip()}",
+    ]
+    return "\n".join(line for line in parts if line.split("：", 1)[1])
 
 
 def get_or_create_week(db: Session, week_start: date) -> WeeklyReview:
@@ -133,14 +173,17 @@ def generate_week_followup(
     if week.status == WeekStatus.CLOSED.value:
         raise ValueError("这一周已经收好了，不能再问。")
 
-    traces, trace_days = _require_trace_days(db, week_start)
     answers = _parse_answers(week.answers_json)
+    traces, trace_days, bootstrap_topic = _require_trace_days(
+        db, week_start, answers=answers
+    )
     outline_lines = [
         f"问：{item['question']}\n答：{(item.get('answer') or '').strip() or '（未写）'}"
         for item in answers
     ]
 
     question = TEMPLATE_WEEK_FOLLOWUP
+    prior_signal = _previous_week_signal(db, week_start)
     if use_llm and provider is not None:
         messages = build_week_followup_messages(
             week_start=week_start.isoformat(),
@@ -148,6 +191,8 @@ def generate_week_followup(
             outline_lines=outline_lines,
             traces=traces,
             trace_days=trace_days,
+            prior_signal=prior_signal,
+            bootstrap_topic=bootstrap_topic,
         )
         try:
             raw = _clean_question(provider.chat(messages))
@@ -340,7 +385,8 @@ def close_week(
     if week.status == WeekStatus.CLOSED.value:
         return week
 
-    traces, trace_days = _require_trace_days(db, week_start)
+    answers = _parse_answers(week.answers_json)
+    traces, trace_days, _ = _require_trace_days(db, week_start, answers=answers)
     question = (week.followup_question or "").strip()
     answer = (week.followup_answer or "").strip()
     if not question:
@@ -348,7 +394,6 @@ def close_week(
     if not answer:
         raise ValueError("还没写下回答。这句回答是本周最要紧的资产，写完再收。")
 
-    answers = _parse_answers(week.answers_json)
     echo, next_focus, note, raw, _ = _generate_week_close_content(
         week_start=week_start,
         followup_question=question,
@@ -380,7 +425,6 @@ def summarize_week(
 ) -> WeeklyReview:
     """对已有周问+回答重新做极短收束（兼容旧 summarize 路由）。"""
     week = get_or_create_week(db, week_start)
-    traces, trace_days = _require_trace_days(db, week_start)
     question = (week.followup_question or "").strip()
     answer = (week.followup_answer or "").strip()
     if not question or not answer:
@@ -389,6 +433,7 @@ def summarize_week(
         raise ValueError("还没配置模型密钥。可先在设置里填好，再请 AI 收一下。")
 
     answers = _parse_answers(week.answers_json)
+    traces, trace_days, _ = _require_trace_days(db, week_start, answers=answers)
     echo, next_focus, note, raw, used_ai = _generate_week_close_content(
         week_start=week_start,
         followup_question=question,
@@ -417,13 +462,20 @@ def summarize_week(
 def week_to_payload(db: Session, week: WeeklyReview) -> dict:
     end = week_end_for(week.week_start)
     traces, live_trace_days = aggregate_day_traces(db, week.week_start, end)
+    answers = _parse_answers(week.answers_json)
+    bootstrap_topic = _bootstrap_topic(answers)
     trace_days = week.trace_days if week.status == WeekStatus.CLOSED.value else live_trace_days
+    if trace_days == 0 and bootstrap_topic:
+        traces = (
+            "（起步模式：用户最近最想搞清楚的一件事）\n"
+            f"{bootstrap_topic}"
+        )
     echo = week.overview or ""
     return {
         "week_start": week.week_start,
         "week_end": end,
         "status": week.status,
-        "answers": _parse_answers(week.answers_json),
+        "answers": answers,
         "followup_question": week.followup_question or "",
         "followup_answer": week.followup_answer or "",
         "overview": echo,
@@ -433,6 +485,8 @@ def week_to_payload(db: Session, week: WeeklyReview) -> dict:
         "raw_markdown": week.raw_markdown,
         "trace_days": trace_days,
         "empty_days": max(0, 7 - live_trace_days),
+        "bootstrap_topic": bootstrap_topic,
+        "bootstrap_mode": bool(bootstrap_topic and live_trace_days == 0),
         "traces": traces,
         "created_at": week.created_at,
         "updated_at": week.updated_at,

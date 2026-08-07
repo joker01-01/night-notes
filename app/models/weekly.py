@@ -18,10 +18,13 @@ class WeekStatus(str, Enum):
 
 # 可选热身提纲（非主菜）；主资产是 followup_question + followup_answer
 DEFAULT_WEEK_OUTLINE = [
+    "最近最想搞清楚的一件事（起步时可选）",
     "这一周实际推进了什么",
     "反复出现的卡住",
     "下周只做一件",
 ]
+
+COLD_START_QUESTION = DEFAULT_WEEK_OUTLINE[0]
 
 # 无 Key / LLM 失败时的模板式轻问（承认材料有限，不编造「反复主题」）
 TEMPLATE_WEEK_FOLLOWUP = (

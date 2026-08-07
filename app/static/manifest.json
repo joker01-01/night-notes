@@ -1,0 +1,11 @@
+{
+  "name": "夜记",
+  "short_name": "夜记",
+  "description": "平时五分钟随手记，周日问自己一句。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#d8dce3",
+  "theme_color": "#d8dce3",
+  "lang": "zh-CN",
+  "icons": []
+}

@@ -138,6 +138,8 @@ class WeekOut(BaseModel):
     raw_markdown: str = ""
     trace_days: int = 0
     empty_days: int = 0
+    bootstrap_topic: str = ""
+    bootstrap_mode: bool = False
     traces: str = ""
     created_at: datetime
     updated_at: datetime

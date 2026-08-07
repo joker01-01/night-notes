@@ -1,11 +1,11 @@
 # 项目进度快照
 
-更新时间：2026-07-31（项目根目录：`D:\\desktop\\app`）
+更新时间：2026-08-07（项目根目录：`D:\\desktop\\app`）
 
-## 总体进度：原型完成，发布路线定案，进入 Flutter 重写准备期
+## 总体进度：Flutter Android MVP 完成，进入真实设备试用期
 
 里程碑：**每日四问制已废案**；**M2 周场当时感追问闭环已落地**；2026-07-31 发布路线与架构决策定案，原型基线提交 8e3e9e6。产品宪法见 `PRODUCT.md`；决策记录见 `docs/decisions/2026-07-31-publish-architecture.md`。  
-下一：设计规格提取 → Flutter 重写（日轨 → 周轨 → 同步 → 桌面）。
+下一：真实设备试用 → Keychain/Keystore 加固 → 跨周承接 → 同步 → 桌面。
 
 ## 发布路线（2026-07-31 定案，简版）
 
@@ -28,12 +28,15 @@
 - [x] 会话状态：`pending / answered / following_up / summarized`；支持重开今晚。
 - [x] 日历回看（旧四问兼容展示）与无记录友好提示。
 - [x] 前端双轨 UI；PRODUCT / README 对齐「夜记（日轻·周重）」。
+- [x] Flutter Android MVP：今晚 / 本周 / 设置三条主路径。
+- [x] Flutter 端 DeepSeek 周问真实调用、加载状态、失败兜底与 Debug APK 构建。
 
 ## 已知问题与技术债
 
 - [x] 日场主路径已拆除四问默认；旧多题 QA 仅兼容读取。
 - [x] 周场追问闭环：问→答→短收束；0 天拒收、缺日可收。
-- [ ] API Key 明文存 SQLite；正式 Alembic 迁移仍属 P2。
+- [ ] Web 原型 API Key 明文存 SQLite；正式 Alembic 迁移仍属 P2。
+- [ ] Flutter API Key 当前存本地偏好设置；正式发布前迁移到 Android Keystore / iOS Keychain。
 - [ ] 定时任务依赖进程常驻；尚无浏览器/外部通知渠道。
 - [ ] 未加入登录/多用户隔离（非目标）。
 

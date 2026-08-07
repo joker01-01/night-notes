@@ -429,17 +429,24 @@ function startOfWeek(dateObj) {
 }
 
 function collectWeekAnswersFromDom() {
-  return [...document.querySelectorAll("#week-outline-list .outline-pad")].map((area) => ({
+  const bootstrap = $("#week-bootstrap-topic");
+  const answers = bootstrap
+    ? [{
+        question: "最近最想搞清楚的一件事（起步时可选）",
+        answer: bootstrap.value || "",
+      }]
+    : [];
+  return answers.concat([...document.querySelectorAll("#week-outline-list .outline-pad")].map((area) => ({
     question: area.dataset.question || "",
     answer: area.value || "",
-  }));
+  })));
 }
 
 function renderWeekOutline(week) {
   const list = $("#week-outline-list");
   const closed = week.status === "closed";
   list.replaceChildren(
-    ...(week.answers || []).map((item) => {
+    ...(week.answers || []).filter((item) => !item.question.startsWith("最近最想搞清楚")).map((item) => {
       const li = document.createElement("li");
       const h = document.createElement("h3");
       h.textContent = item.question;
@@ -467,15 +474,17 @@ function applyWeekView(week) {
   const n = week.trace_days || 0;
   const empty = week.empty_days || 0;
   const hasQ = Boolean(String(week.followup_question || "").trim());
+  const bootstrapMode = Boolean(week.bootstrap_mode);
   let stats = `近 7 日有痕迹 ${n} 天`;
-  if (empty > 0 && !closed) stats += `，另有 ${empty} 天空着——缺几天也没关系。`;
+  if (bootstrapMode && !closed) stats = "起步模式：还没有日痕迹，也可以先问自己一句";
+  else if (empty > 0 && !closed) stats += `，另有 ${empty} 天空着——缺几天也没关系。`;
   $("#week-stats").textContent = stats;
 
   const hint = $("#week-empty-hint");
   if (closed) {
     hint.textContent = "";
   } else if (n === 0) {
-    hint.textContent = "还几乎没有日痕迹。至少一天夜记后，才能问自己一句。";
+    hint.textContent = "先写一件最近最想搞清楚的事，下面就能直接开始。";
   } else if (!hasQ) {
     hint.textContent = "看着痕迹，点「问自己一句（本周）」——只问感受与分量，不是周报。";
   } else {
@@ -483,6 +492,11 @@ function applyWeekView(week) {
   }
 
   renderWeekOutline(week);
+  const bootstrap = $("#week-bootstrap");
+  const bootstrapTopic = $("#week-bootstrap-topic");
+  bootstrap.classList.toggle("hidden", closed || n > 0);
+  bootstrapTopic.value = week.bootstrap_topic || "";
+  bootstrapTopic.disabled = closed || n > 0;
   $("#week-traces-body").textContent =
     String(week.traces || "").trim() || "近七日还没有可汇总的夜记。先去「今晚」写一点。";
 
@@ -602,8 +616,8 @@ async function askWeekFollowup() {
   if (!state.week) return;
   const note = $("#week-shell-note");
   note.classList.remove("hidden");
-  if ((state.week.trace_days || 0) === 0) {
-    note.textContent = "还几乎没有日痕迹。先去「今晚」写一点再回来。";
+  if ((state.week.trace_days || 0) === 0 && !String($("#week-bootstrap-topic").value || "").trim()) {
+    note.textContent = "先填一件最近最想搞清楚的事，或去「今晚」写一点。";
     return;
   }
   note.textContent = "正在想一句值得问自己的话…";
@@ -640,8 +654,8 @@ async function closeCurrentWeek() {
   if (!state.week) return;
   const note = $("#week-shell-note");
   note.classList.remove("hidden");
-  if ((state.week.trace_days || 0) === 0) {
-    note.textContent = "还几乎没有日痕迹，收了也会很空。先去「今晚」写一点再回来。";
+  if ((state.week.trace_days || 0) === 0 && !String($("#week-bootstrap-topic").value || "").trim()) {
+    note.textContent = "先填一件最近最想搞清楚的事，或去「今晚」写一点。";
     return;
   }
   try {
@@ -768,8 +782,9 @@ async function loadSettings() {
   const s = await api("/settings");
   const form = $("#settings-form");
   for (const [key, value] of Object.entries(s)) {
+    if (!form.elements[key]) continue;
     if (key === "question_templates") form.elements[key].value = value.join("\n");
-    else if (form.elements[key]) form.elements[key].value = value;
+    else form.elements[key].value = value;
   }
   $("#key-status").textContent = s.api_key_configured
     ? "已配置本地密钥（不会回显）"
@@ -781,7 +796,7 @@ async function saveSettings(event) {
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form));
   data.context_days = Number(data.context_days);
-  data.question_templates = data.question_templates
+  data.question_templates = String(data.question_templates || "")
     .split("\n")
     .map((value) => value.trim())
     .filter(Boolean);

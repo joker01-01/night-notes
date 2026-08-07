@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>夜记</title>
+    <meta name="theme-color" content="#d8dce3" />
+    <link rel="manifest" href="/static/manifest.json" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -80,6 +82,18 @@
             <p class="muted">还热的时候，最适合问自己一句。</p>
           </div>
           <pre id="week-traces-body" class="traces-body muted">加载中…</pre>
+        </section>
+
+        <section id="week-bootstrap" class="week-bootstrap hidden" aria-label="起步模式">
+          <p class="kicker">第一次来，也可以从这里开始</p>
+          <h2>最近最想搞清楚的一件事</h2>
+          <p class="muted">还没有日痕迹时，不用等一周。写下一件最近一直占着心里的事。</p>
+          <textarea
+            id="week-bootstrap-topic"
+            class="outline-pad"
+            rows="3"
+            placeholder="例如：我到底还想不想继续做这件事？"
+          ></textarea>
         </section>
 
         <section id="week-followup-section" class="week-followup" aria-label="本周问自己">
@@ -173,15 +187,16 @@
             <label>每晚提问时间<input name="question_time" type="time" required /></label>
             <label>历史上下文（天）<input name="context_days" type="number" min="1" max="90" required /></label>
           </div>
-          <label>可选自问参考（每日四问已废案）
-            <textarea name="question_templates" rows="5" placeholder="可留空。不再驱动每晚出题。"></textarea>
-            <small>每日四问制已废案。此处仅作可选内部参考种子，不驱动建会话出题；今晚主路径是自由书写，「再问自己一句」由 AI 临时生成。</small>
-          </label>
           <button class="primary" type="submit">保存设置</button>
           <span id="settings-message" class="muted"></span>
         </form>
       </section>
     </main>
     <script src="/static/app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+      }
+    </script>
   </body>
 </html>

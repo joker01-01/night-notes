@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import Base
 from app.models import DailySession, QA, QAType, SessionStatus, Summary
-from app.models.weekly import TEMPLATE_WEEK_FOLLOWUP
+from app.models.weekly import COLD_START_QUESTION, TEMPLATE_WEEK_FOLLOWUP
+from app.llm.prompts import build_week_followup_messages
 from app.services.report_service import aggregate_day_traces, aggregate_summaries
 from app.services.week_service import (
     close_week,
@@ -108,6 +109,39 @@ def test_zero_trace_days_reject_followup_and_close() -> None:
         close_week(db, week_start, use_llm=False)
 
 
+def test_bootstrap_week_can_start_without_day_traces() -> None:
+    db = make_db()
+    week_start = week_start_for(date(2026, 7, 29))
+    save_week_answers(
+        db,
+        week_start,
+        [{"question": COLD_START_QUESTION, "answer": "我到底还想不想继续做这个 App？"}],
+    )
+    week = generate_week_followup(db, week_start, use_llm=False)
+    assert week.followup_question == TEMPLATE_WEEK_FOLLOWUP
+    assert week.trace_days == 0
+    save_week_followup_answer(db, week_start, "我还想做，但害怕没人用。")
+    closed = close_week(db, week_start, use_llm=False)
+    assert closed.status == "closed"
+    assert "我到底还想不想继续做这个 App？" in closed.raw_markdown
+
+
+def test_week_prompt_includes_prior_signal_and_bootstrap_topic() -> None:
+    messages = build_week_followup_messages(
+        week_start="2026-08-02",
+        week_end="2026-08-08",
+        outline_lines=["问：下周只做一件\n答：完成真实用户验证"],
+        traces="（起步模式）\n我想知道产品是否值得继续",
+        trace_days=0,
+        prior_signal="上周回答：我害怕没人用\n上周下一步：找 10 个用户",
+        bootstrap_topic="我想知道产品是否值得继续",
+    )
+    user_content = messages[-1]["content"]
+    assert "我害怕没人用" in user_content
+    assert "找 10 个用户" in user_content
+    assert "我想知道产品是否值得继续" in user_content
+
+
 def test_unsaved_body_appears_in_traces() -> None:
     db = make_db()
     _add_day(db, date(2026, 7, 28), body="只存未收的正文", with_summary=False)
@@ -156,6 +190,33 @@ class WeekFollowupFakeProvider:
             '"next_focus":"本周先不硬定下一件",'
             '"note":"怕被看见也没关系。"}'
         )
+
+
+class RecordingFollowupProvider:
+    def __init__(self) -> None:
+        self.messages = []
+
+    def chat(self, messages):
+        self.messages.append(messages)
+        return "这件事现在的分量，和上周相比有没有变化？"
+
+
+def test_followup_carries_forward_previous_closed_week_signal() -> None:
+    db = make_db()
+    previous_start = date(2026, 7, 26)
+    _add_day(db, date(2026, 7, 27), body="上周一直担心发布")
+    _ask_and_answer(db, previous_start, "我害怕没人会用")
+    close_week(db, previous_start, use_llm=False)
+
+    current_start = date(2026, 8, 2)
+    _add_day(db, date(2026, 8, 3), body="这周准备找真实用户")
+    provider = RecordingFollowupProvider()
+    generate_week_followup(db, current_start, provider=provider, use_llm=True)
+
+    user_content = provider.messages[-1][-1]["content"]
+    assert "我害怕没人会用" in user_content
+    assert "本周准备找真实用户" not in user_content
+    assert "找真实用户" in user_content
 
 
 def test_two_day_traces_gentle_followup_then_close() -> None:
