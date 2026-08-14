@@ -4,5 +4,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 data/
+!mobile/lib/data/
+!mobile/lib/data/**
 *.db
-
+.uvicorn-live.*

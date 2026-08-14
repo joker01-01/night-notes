@@ -22,6 +22,8 @@ from app.schemas import (
     WeekCloseIn,
     WeekFollowupAnswerIn,
     WeekFollowupIn,
+    WeekTopicUpdate,
+    WeekTopicsIn,
     WeekOut,
 )
 from app.services.report_service import aggregate_summaries
@@ -45,9 +47,11 @@ from app.services.settings_service import (
 from app.services.week_service import (
     close_week,
     generate_week_followup,
+    generate_week_topics,
     get_or_create_week,
     save_week_answers,
     save_week_followup_answer,
+    save_week_topic,
     summarize_week,
     week_start_for,
     week_to_payload,
@@ -108,7 +112,14 @@ def write_answers(day: date, payload: AnswersUpdate, db: Session = Depends(get_d
     if session is None:
         raise HTTPException(status_code=404, detail="当天尚无复盘会话")
     try:
-        return session_to_schema(save_answers(db, session, {item.qa_id: item.answer for item in payload.answers}))
+        return session_to_schema(
+            save_answers(
+                db,
+                session,
+                {item.qa_id: item.answer for item in payload.answers},
+                emotion=payload.emotion,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -243,6 +254,50 @@ def generate_week_followup_route(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise _llm_http(exc) from exc
+    return WeekOut.model_validate(week_to_payload(db, week))
+
+
+@router.post("/weeks/{week_start}/topics", response_model=WeekOut)
+def generate_week_topics_route(
+    week_start: date,
+    payload: WeekTopicsIn | None = None,
+    db: Session = Depends(get_db),
+) -> WeekOut:
+    """生成 2～3 个可选周场主题；无 Key 时使用本地可解释兜底。"""
+    use_llm = True if payload is None else bool(payload.use_llm)
+    provider = None
+    if use_llm:
+        try:
+            provider = get_provider(db)
+        except Exception:
+            provider = None
+    try:
+        week = generate_week_topics(
+            db,
+            week_start_for(week_start),
+            provider=provider,
+            use_llm=use_llm and provider is not None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _llm_http(exc) from exc
+    return WeekOut.model_validate(week_to_payload(db, week))
+
+
+@router.put("/weeks/{week_start}/topic", response_model=WeekOut)
+def write_week_topic(
+    week_start: date, payload: WeekTopicUpdate, db: Session = Depends(get_db)
+) -> WeekOut:
+    try:
+        week = save_week_topic(
+            db,
+            week_start_for(week_start),
+            payload.topic,
+            emotion=payload.emotion,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return WeekOut.model_validate(week_to_payload(db, week))
 
 

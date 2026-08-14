@@ -44,6 +44,13 @@ WEEK_FOLLOWUP_SYSTEM = """你在帮用户做每周一次的「和自己谈谈」
 禁止：周总结、复盘列表、「你应该」、鸡汤、一次问两件事。
 输出：仅问题本身，无前缀无客套。"""
 
+WEEK_TOPICS_SYSTEM = """你在帮用户为每周一次的自我校准挑选谈话主题。
+根据近七日痕迹和有限的上周信号，提炼 2～3 个用户可能真正想谈的具体线程。
+主题不是问题，不是总结，也不是任务清单；可以是一个项目、一件选择、一次卡住或一种反复出现的分量。
+优先保留用户原话，避免心理诊断、宏大人生结论和凭空补全。
+只返回 JSON 字符串数组，例如：["准备发布的小 App", "想继续还是停下"]。
+不要 Markdown 代码块，不要其它文字。"""
+
 WEEK_CLOSE_SYSTEM = """用户刚回答了本周那一个周问。做极短收束，不要重写一篇周总结。
 只返回 JSON，键严格为 echo、next_focus、note：
 - echo：1-2 句如实反映他刚才的回答（可点出感受），不评价、不借机摘要整周流水。
@@ -103,6 +110,8 @@ def build_week_followup_messages(
     trace_days: int,
     prior_signal: str = "",
     bootstrap_topic: str = "",
+    selected_topic: str = "",
+    followup_emotion: str = "",
 ) -> list[ChatMessage]:
     parts = [
         f"【周区间】{week_start} 至 {week_end}，有痕迹 {trace_days} 天。",
@@ -114,10 +123,39 @@ def build_week_followup_messages(
         prior_signal.strip() or "（没有上周可承接内容）",
         "\n【起步模式（可空）】",
         bootstrap_topic.strip() or "（不是起步模式）",
+        "\n【用户选定的谈话主题】",
+        selected_topic.strip() or "（尚未选择，需从痕迹中挑一件）",
+        "\n【用户此刻可选的情绪】",
+        followup_emotion.strip() or "（未选择）",
         "\n请只输出一个温柔的周问。",
     ]
     return [
         {"role": "system", "content": WEEK_FOLLOWUP_SYSTEM},
+        {"role": "user", "content": "\n".join(parts)},
+    ]
+
+
+def build_week_topics_messages(
+    *,
+    week_start: str,
+    week_end: str,
+    traces: str,
+    trace_days: int,
+    prior_signal: str = "",
+    bootstrap_topic: str = "",
+) -> list[ChatMessage]:
+    parts = [
+        f"【周区间】{week_start} 至 {week_end}，有痕迹 {trace_days} 天。",
+        "【近七日痕迹】",
+        traces.strip() or "（几乎没有日痕迹）",
+        "\n【上周信号（可空）】",
+        prior_signal.strip() or "（没有上周可承接内容）",
+        "\n【起步主题（可空）】",
+        bootstrap_topic.strip() or "（不是起步模式）",
+        "\n请只返回 2～3 个具体谈话主题的 JSON 字符串数组。",
+    ]
+    return [
+        {"role": "system", "content": WEEK_TOPICS_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
     ]
 
@@ -130,9 +168,13 @@ def build_week_close_messages(
     followup_answer: str,
     traces: str,
     trace_days: int,
+    selected_topic: str = "",
+    followup_emotion: str = "",
 ) -> list[ChatMessage]:
     parts = [
         f"【周区间】{week_start} 至 {week_end}，有痕迹 {trace_days} 天。",
+        f"【选定主题】{selected_topic.strip() or '（未选择）'}",
+        f"【周场情绪】{followup_emotion.strip() or '（未选择）'}",
         f"【本周问句】{followup_question.strip() or '（无）'}",
         f"【我的回答】{followup_answer.strip() or '（未写）'}",
         "\n【近七日痕迹（仅供参考，勿据此重写周流水）】",

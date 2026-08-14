@@ -1,5 +1,11 @@
 # CHANGELOG
 
+- [2026-08-12] feat/mobile: Flutter Android 试用版同步完成：Drift 本地数据库、旧 SharedPreferences 条件迁移、每日情绪与可选追问、周候选主题与完整收束、历史只读回看、可选 DeepSeek 与本地兜底；生成 release APK。
+
+- [2026-08-12] feat/pilot: Web/PWA 补齐试用闭环：日轨情绪-only 痕迹、2～3 个周场候选主题、用户自选/自定义主题、周场情绪、冷启动自定义主题、有限周场承接，并补充迁移与自动化测试。
+
+- [2026-08-12] docs/product: 冻结「夜记｜每周问自己一句」产品形态与两周试用方案：日常记录可选且不触发 AI；周场无截止时间；AI 一问一答、用户回答为核心资产；新增 [`docs/product-constitution.md`](docs/product-constitution.md) 与 [`docs/decisions/2026-08-12-product-shape-freeze.md`](docs/decisions/2026-08-12-product-shape-freeze.md)，并更新试用成功标准。
+
 - [2026-08-07] feat/mobile: Flutter Android MVP 接通 DeepSeek 周问真实请求；设置页保存本机 Key，增加请求加载态、失败兜底与 Android 网络权限；今晚文案改为「写下今天最想留下的一点，不用完整」，同步更新 PRODUCT / README / PROGRESS。
 - [2026-07-31] feat/定位: 日轨极轻记定案——可选「表情 ± 一句话」，表情即痕迹；daily_sessions 新增 emotion；只有表情不触发 AI；自由书写仍为主路径（防每日四问幽灵借壳）；决策记录 003 落地。
 - [2026-07-31] feat/定位: 周场细节定案——弹性热窗（周一/周二宽限，周三起降级「只收不问」）；表情预选集 8+跳过；周问/收束 prompt 定稿；决策记录 002 补全。

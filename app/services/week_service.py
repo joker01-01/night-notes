@@ -10,7 +10,11 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.llm.prompts import build_week_close_messages, build_week_followup_messages
+from app.llm.prompts import (
+    build_week_close_messages,
+    build_week_followup_messages,
+    build_week_topics_messages,
+)
 from app.llm.providers import LLMProvider
 from app.models.weekly import (
     COLD_START_QUESTION,
@@ -60,6 +64,49 @@ def _dump_answers(answers: list[dict[str, str]]) -> str:
     return json.dumps(answers, ensure_ascii=False)
 
 
+def _parse_topics(raw: str) -> list[str]:
+    cleaned = (raw or "").strip()
+    fence = chr(96) * 3
+    if cleaned.startswith(fence):
+        cleaned = re.sub(r"^" + fence + r"(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*" + fence + r"$", "", cleaned)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        data = []
+    if isinstance(data, dict):
+        data = data.get("topics") or data.get("items") or []
+    if not isinstance(data, list):
+        return []
+    topics: list[str] = []
+    for item in data:
+        topic = re.sub(r"\s+", " ", str(item or "")).strip().strip('"\'')
+        if topic and topic not in topics:
+            topics.append(topic[:500])
+    return topics[:3]
+
+
+def _dump_topics(topics: list[str]) -> str:
+    return json.dumps(topics[:3], ensure_ascii=False)
+
+
+def _local_candidate_topics(traces: str, bootstrap_topic: str = "") -> list[str]:
+    if bootstrap_topic.strip():
+        return [bootstrap_topic.strip()[:500]]
+    topics: list[str] = []
+    for raw_line in (traces or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("（") or line.startswith("情绪："):
+            continue
+        line = re.sub(r"^\d+[.、]\s*", "", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if line and line not in topics:
+            topics.append(line[:120])
+    if not topics and "情绪：" in (traces or ""):
+        topics.append("这周反复出现的情绪")
+    return topics[:3]
+
+
 def _bootstrap_topic(answers: list[dict[str, str]]) -> str:
     for item in answers:
         if item.get("question") == COLD_START_QUESTION:
@@ -72,10 +119,11 @@ def _require_trace_days(
     week_start: date,
     *,
     answers: list[dict[str, str]] | None = None,
+    selected_topic: str = "",
 ) -> tuple[str, int, str]:
     end = week_end_for(week_start)
     traces, trace_days = aggregate_day_traces(db, week_start, end)
-    bootstrap_topic = _bootstrap_topic(answers or [])
+    bootstrap_topic = _bootstrap_topic(answers or []) or (selected_topic or "").strip()
     if trace_days == 0 and bootstrap_topic:
         return (
             "（起步模式：用户最近最想搞清楚的一件事）\n"
@@ -124,6 +172,68 @@ def get_or_create_week(db: Session, week_start: date) -> WeeklyReview:
 
 def get_week(db: Session, week_start: date) -> WeeklyReview | None:
     return db.scalar(select(WeeklyReview).where(WeeklyReview.week_start == week_start))
+
+
+def generate_week_topics(
+    db: Session,
+    week_start: date,
+    *,
+    provider: LLMProvider | None = None,
+    use_llm: bool = True,
+) -> WeeklyReview:
+    """生成 2～3 个可选主题；没有模型时从用户原话提取可解释候选。"""
+    week = get_or_create_week(db, week_start)
+    if week.status == WeekStatus.CLOSED.value:
+        raise ValueError("这一周已经收好了，不能再换主题。")
+    answers = _parse_answers(week.answers_json)
+    traces, trace_days, bootstrap_topic = _require_trace_days(
+        db, week_start, answers=answers, selected_topic=week.selected_topic
+    )
+    topics = _local_candidate_topics(traces, bootstrap_topic)
+    if use_llm and provider is not None:
+        messages = build_week_topics_messages(
+            week_start=week_start.isoformat(),
+            week_end=week_end_for(week_start).isoformat(),
+            traces=traces,
+            trace_days=trace_days,
+            prior_signal=_previous_week_signal(db, week_start),
+            bootstrap_topic=bootstrap_topic,
+        )
+        try:
+            parsed = _parse_topics(provider.chat(messages))
+            if parsed:
+                topics = parsed
+        except Exception:
+            logger.exception("周场候选主题 LLM 失败，降级本地候选")
+    if not topics:
+        raise ValueError("还没找到可谈的主题。可以先写一条日痕迹，或自己填一件事。")
+    week.candidate_topics_json = _dump_topics(topics)
+    week.trace_days = trace_days
+    week.updated_at = datetime.now()
+    db.commit()
+    db.refresh(week)
+    return week
+
+
+def save_week_topic(
+    db: Session,
+    week_start: date,
+    topic: str,
+    *,
+    emotion: str = "",
+) -> WeeklyReview:
+    week = get_or_create_week(db, week_start)
+    if week.status == WeekStatus.CLOSED.value:
+        raise ValueError("这一周已经收好了，不能再换主题。")
+    cleaned = (topic or "").strip()
+    if not cleaned:
+        raise ValueError("先选一件事，或自己写一个想谈的主题。")
+    week.selected_topic = cleaned[:500]
+    week.followup_emotion = (emotion or "").strip()[:40]
+    week.updated_at = datetime.now()
+    db.commit()
+    db.refresh(week)
+    return week
 
 
 def save_week_answers(
@@ -175,8 +285,14 @@ def generate_week_followup(
 
     answers = _parse_answers(week.answers_json)
     traces, trace_days, bootstrap_topic = _require_trace_days(
-        db, week_start, answers=answers
+        db, week_start, answers=answers, selected_topic=week.selected_topic
     )
+    selected_topic = (week.selected_topic or "").strip()
+    if not selected_topic:
+        fallback_topics = _local_candidate_topics(traces, bootstrap_topic)
+        if fallback_topics:
+            selected_topic = fallback_topics[0]
+            week.selected_topic = selected_topic
     outline_lines = [
         f"问：{item['question']}\n答：{(item.get('answer') or '').strip() or '（未写）'}"
         for item in answers
@@ -193,6 +309,8 @@ def generate_week_followup(
             trace_days=trace_days,
             prior_signal=prior_signal,
             bootstrap_topic=bootstrap_topic,
+            selected_topic=selected_topic,
+            followup_emotion=week.followup_emotion or "",
         )
         try:
             raw = _clean_question(provider.chat(messages))
@@ -256,6 +374,8 @@ def build_local_week_close(
     answers: list[dict[str, str]],
     traces: str,
     trace_days: int,
+    selected_topic: str = "",
+    followup_emotion: str = "",
 ) -> dict[str, str]:
     answer = (followup_answer or "").strip()
     echo = answer[:160] if answer else "这一周你坐下来答了一句。"
@@ -272,6 +392,8 @@ def build_local_week_close(
             answers=answers,
             traces=traces,
             trace_days=trace_days,
+            selected_topic=selected_topic,
+            followup_emotion=followup_emotion,
             echo=echo,
             next_focus="本周先不硬定下一件",
             note="问过自己，就算过完了。",
@@ -287,6 +409,8 @@ def _format_week_archive(
     answers: list[dict[str, str]],
     traces: str,
     trace_days: int,
+    selected_topic: str = "",
+    followup_emotion: str = "",
     echo: str,
     next_focus: str,
     note: str,
@@ -296,6 +420,12 @@ def _format_week_archive(
         f"# 周场 {week_start.isoformat()} — {week_end.isoformat()}",
         "",
         f"本周有痕迹的日子：{trace_days} 天。",
+        "",
+        "## 这周想谈的事",
+        selected_topic.strip() or "（未选择）",
+        "",
+        "## 周场情绪",
+        followup_emotion.strip() or "（未选择）",
         "",
         "## 本周问自己",
         (followup_question or "").strip() or "（未生成）",
@@ -329,6 +459,8 @@ def _generate_week_close_content(
     answers: list[dict[str, str]],
     traces: str,
     trace_days: int,
+    selected_topic: str = "",
+    followup_emotion: str = "",
     provider: LLMProvider | None,
     use_llm: bool,
 ) -> tuple[str, str, str, str, bool]:
@@ -340,6 +472,8 @@ def _generate_week_close_content(
         answers=answers,
         traces=traces,
         trace_days=trace_days,
+        selected_topic=selected_topic,
+        followup_emotion=followup_emotion,
     )
     if not use_llm or provider is None:
         return local["echo"], local["next_focus"], local["note"], local["raw_markdown"], False
@@ -351,6 +485,8 @@ def _generate_week_close_content(
         followup_answer=followup_answer,
         traces=traces,
         trace_days=trace_days,
+        selected_topic=selected_topic,
+        followup_emotion=followup_emotion,
     )
     try:
         parsed = _parse_week_close_json(provider.chat(messages))
@@ -364,6 +500,8 @@ def _generate_week_close_content(
             answers=answers,
             traces=traces,
             trace_days=trace_days,
+            selected_topic=selected_topic,
+            followup_emotion=followup_emotion,
             echo=parsed["echo"],
             next_focus=parsed["next_focus"],
             note=parsed["note"],
@@ -386,7 +524,9 @@ def close_week(
         return week
 
     answers = _parse_answers(week.answers_json)
-    traces, trace_days, _ = _require_trace_days(db, week_start, answers=answers)
+    traces, trace_days, _ = _require_trace_days(
+        db, week_start, answers=answers, selected_topic=week.selected_topic
+    )
     question = (week.followup_question or "").strip()
     answer = (week.followup_answer or "").strip()
     if not question:
@@ -401,6 +541,8 @@ def close_week(
         answers=answers,
         traces=traces,
         trace_days=trace_days,
+        selected_topic=week.selected_topic or "",
+        followup_emotion=week.followup_emotion or "",
         provider=provider,
         use_llm=use_llm,
     )
@@ -433,7 +575,9 @@ def summarize_week(
         raise ValueError("还没配置模型密钥。可先在设置里填好，再请 AI 收一下。")
 
     answers = _parse_answers(week.answers_json)
-    traces, trace_days, _ = _require_trace_days(db, week_start, answers=answers)
+    traces, trace_days, _ = _require_trace_days(
+        db, week_start, answers=answers, selected_topic=week.selected_topic
+    )
     echo, next_focus, note, raw, used_ai = _generate_week_close_content(
         week_start=week_start,
         followup_question=question,
@@ -441,6 +585,8 @@ def summarize_week(
         answers=answers,
         traces=traces,
         trace_days=trace_days,
+        selected_topic=week.selected_topic or "",
+        followup_emotion=week.followup_emotion or "",
         provider=provider,
         use_llm=True,
     )
@@ -463,7 +609,7 @@ def week_to_payload(db: Session, week: WeeklyReview) -> dict:
     end = week_end_for(week.week_start)
     traces, live_trace_days = aggregate_day_traces(db, week.week_start, end)
     answers = _parse_answers(week.answers_json)
-    bootstrap_topic = _bootstrap_topic(answers)
+    bootstrap_topic = _bootstrap_topic(answers) or (week.selected_topic or "").strip()
     trace_days = week.trace_days if week.status == WeekStatus.CLOSED.value else live_trace_days
     if trace_days == 0 and bootstrap_topic:
         traces = (
@@ -476,6 +622,9 @@ def week_to_payload(db: Session, week: WeeklyReview) -> dict:
         "week_end": end,
         "status": week.status,
         "answers": answers,
+        "candidate_topics": _parse_topics(week.candidate_topics_json),
+        "selected_topic": week.selected_topic or "",
+        "followup_emotion": week.followup_emotion or "",
         "followup_question": week.followup_question or "",
         "followup_answer": week.followup_answer or "",
         "overview": echo,

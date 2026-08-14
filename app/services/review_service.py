@@ -128,7 +128,13 @@ def create_session_if_needed(
     return get_session(db, day) or session
 
 
-def save_answers(db: Session, session: DailySession, answers: dict[int, str]) -> DailySession:
+def save_answers(
+    db: Session,
+    session: DailySession,
+    answers: dict[int, str],
+    *,
+    emotion: str = "",
+) -> DailySession:
     if session.status in {SessionStatus.FOLLOWING_UP.value, SessionStatus.SUMMARIZED.value}:
         raise ValueError("正在自问或已收过一收时，今晚正文暂不可改。可先「再写一遍」。")
     fixed_ids = {qa.id for qa in _fixed_qas(session)}
@@ -138,7 +144,8 @@ def save_answers(db: Session, session: DailySession, answers: dict[int, str]) ->
     for qa in _fixed_qas(session):
         if qa.id in answers:
             qa.answer = answers[qa.id].strip()
-    if any(qa.answer for qa in _fixed_qas(session)):
+    session.emotion = (emotion or "").strip()
+    if any(qa.answer for qa in _fixed_qas(session)) or session.emotion:
         session.status = SessionStatus.ANSWERED.value
     else:
         session.status = SessionStatus.PENDING.value
@@ -349,6 +356,7 @@ def session_to_schema(session: DailySession) -> SessionOut:
     return SessionOut(
         date=session.date,
         status=session.status,
+        emotion=getattr(session, "emotion", "") or "",
         qas=[
             QAOut(
                 id=qa.id,

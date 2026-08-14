@@ -30,6 +30,8 @@ class DailySession(Base):
     date: Mapped[date] = mapped_column(Date, unique=True, index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=SessionStatus.PENDING.value, nullable=False)
+    # 非诊断性的轻量情绪标记；只选情绪也算一条痕迹。
+    emotion: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     qas: Mapped[list[QA]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="QA.order"
     )

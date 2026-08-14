@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 # table -> [(column, sqlite_type_with_default)]
 _REQUIRED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "daily_sessions": [
+        ("emotion", "VARCHAR(40) NOT NULL DEFAULT ''"),
+    ],
     "qas": [
         ("qa_type", "VARCHAR(20) NOT NULL DEFAULT 'fixed'"),
         ("round", "INTEGER NOT NULL DEFAULT 0"),
@@ -21,6 +24,9 @@ _REQUIRED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("lesson", "TEXT NOT NULL DEFAULT ''"),
     ],
     "weekly_reviews": [
+        ("candidate_topics_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("selected_topic", "TEXT NOT NULL DEFAULT ''"),
+        ("followup_emotion", "VARCHAR(40) NOT NULL DEFAULT ''"),
         ("followup_question", "TEXT NOT NULL DEFAULT ''"),
         ("followup_answer", "TEXT NOT NULL DEFAULT ''"),
         ("next_focus", "TEXT NOT NULL DEFAULT ''"),

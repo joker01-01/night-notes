@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 import pytest
@@ -14,8 +15,10 @@ from app.services.report_service import aggregate_day_traces, aggregate_summarie
 from app.services.week_service import (
     close_week,
     generate_week_followup,
+    generate_week_topics,
     get_or_create_week,
     save_week_answers,
+    save_week_topic,
     save_week_followup_answer,
     week_start_for,
     week_to_payload,
@@ -124,6 +127,30 @@ def test_bootstrap_week_can_start_without_day_traces() -> None:
     closed = close_week(db, week_start, use_llm=False)
     assert closed.status == "closed"
     assert "我到底还想不想继续做这个 App？" in closed.raw_markdown
+
+
+def test_selected_topic_can_start_a_cold_week_without_daily_traces() -> None:
+    db = make_db()
+    week_start = week_start_for(date(2026, 7, 29))
+    save_week_topic(db, week_start, "我到底还想不想继续做这个 App？", emotion="犹豫")
+    week = generate_week_followup(db, week_start, use_llm=False)
+    assert week.selected_topic == "我到底还想不想继续做这个 App？"
+    assert week.followup_emotion == "犹豫"
+    save_week_followup_answer(db, week_start, "我还想做，但害怕没人用。")
+    closed = close_week(db, week_start, use_llm=False)
+    assert closed.status == "closed"
+    assert "这周想谈的事" in closed.raw_markdown
+    assert "我到底还想不想继续做这个 App？" in closed.raw_markdown
+
+
+def test_local_week_topics_are_bounded_and_use_original_trace() -> None:
+    db = make_db()
+    week_start = date(2026, 7, 26)
+    _add_day(db, date(2026, 7, 27), body="准备发布一个小 App")
+    _add_day(db, date(2026, 7, 29), body="总觉得还没准备好")
+    week = generate_week_topics(db, week_start, provider=None, use_llm=False)
+    assert 1 <= len(json.loads(week.candidate_topics_json)) <= 3
+    assert any("准备发布一个小 App" in topic for topic in json.loads(week.candidate_topics_json))
 
 
 def test_week_prompt_includes_prior_signal_and_bootstrap_topic() -> None:

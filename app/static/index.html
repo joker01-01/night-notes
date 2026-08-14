@@ -38,6 +38,14 @@
             rows="10"
             placeholder="随便写一点。写完就能走。"
           ></textarea>
+          <div class="emotion-field">
+            <div class="emotion-caption">
+              <span>如果愿意，标一下此刻的分量</span>
+              <span id="tonight-emotion-value" class="muted">不选也可以</span>
+            </div>
+            <div id="tonight-emotions" class="emotion-picker" role="group" aria-label="今晚的情绪"></div>
+            <p class="muted emotion-note">这不是测量，只是给这条痕迹留一个角度。</p>
+          </div>
           <div class="actions tonight-actions">
             <button id="btn-save" class="primary" type="button">存一下</button>
             <button id="btn-done" class="ghost" type="button">先这样</button>
@@ -71,6 +79,8 @@
         <header class="week-head">
           <p class="kicker">本周</p>
           <h1>这一周，坐下来谈谈。</h1>
+          <p class="muted week-timing">周日 / 周一推荐 · 没有截止时间</p>
+          <p class="muted week-privacy">只有你进入周场并继续时，才会整理本周所需内容。</p>
         </header>
 
         <p id="week-stats" class="muted week-stats" aria-live="polite"></p>
@@ -84,16 +94,19 @@
           <pre id="week-traces-body" class="traces-body muted">加载中…</pre>
         </section>
 
-        <section id="week-bootstrap" class="week-bootstrap hidden" aria-label="起步模式">
-          <p class="kicker">第一次来，也可以从这里开始</p>
-          <h2>最近最想搞清楚的一件事</h2>
-          <p class="muted">还没有日痕迹时，不用等一周。写下一件最近一直占着心里的事。</p>
-          <textarea
-            id="week-bootstrap-topic"
-            class="outline-pad"
-            rows="3"
-            placeholder="例如：我到底还想不想继续做这件事？"
-          ></textarea>
+        <section id="week-topic-section" class="week-topic-section" aria-label="本周谈话主题">
+          <p class="kicker">这周想谈哪一件</p>
+          <h2>选一件就好。</h2>
+          <p id="week-topic-hint" class="muted">先看几条可能值得坐下来谈的线索，也可以自己写。</p>
+          <div id="week-topic-list" class="topic-list"></div>
+          <button id="btn-week-topics" class="ghost" type="button">看一看这周的几件事</button>
+          <label class="topic-custom-label" for="week-topic-custom">也可以自己写</label>
+          <input id="week-topic-custom" class="topic-custom" maxlength="500" placeholder="最近最想搞清楚的一件事" />
+          <div class="emotion-caption week-emotion-caption">
+            <span>这件事此刻更像什么分量？</span>
+            <span id="week-emotion-value" class="muted">可跳过</span>
+          </div>
+          <div id="week-emotions" class="emotion-picker" role="group" aria-label="本周的情绪"></div>
         </section>
 
         <section id="week-followup-section" class="week-followup" aria-label="本周问自己">
@@ -124,6 +137,10 @@
         <div id="week-closed" class="week-closed hidden">
           <h2>这一周已收好</h2>
           <div class="week-core-asset">
+            <h3>这周想谈的事</h3>
+            <p id="week-closed-topic" class="week-followup-a-view"></p>
+            <h3>周场情绪</h3>
+            <p id="week-closed-emotion" class="week-followup-a-view"></p>
             <h3>本周问自己</h3>
             <p id="week-closed-q" class="week-followup-q"></p>
             <h3>我的回答</h3>
@@ -190,6 +207,20 @@
           <button class="primary" type="submit">保存设置</button>
           <span id="settings-message" class="muted"></span>
         </form>
+        <section class="reminder-settings" aria-label="本周提醒">
+          <p class="kicker">本周提醒</p>
+          <h2>给自己留一个入口。</h2>
+          <label class="reminder-toggle">
+            <input id="weekly-reminder-enabled" type="checkbox" />
+            <span>周日 / 周一提醒我看一眼</span>
+          </label>
+          <label class="reminder-time-label">提醒时间
+            <input id="weekly-reminder-time" type="time" value="20:00" />
+          </label>
+          <p class="muted">每周最多一次；没有截止时间，也不会显示逾期。</p>
+          <button id="btn-reminder-save" class="ghost" type="button">保存提醒</button>
+          <p id="reminder-message" class="muted" aria-live="polite"></p>
+        </section>
       </section>
     </main>
     <script src="/static/app.js"></script>

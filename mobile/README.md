@@ -1,17 +1,29 @@
-# yekee_mobile
+# 夜记 Android 试用版
 
-A new Flutter project.
+这是夜记的 Flutter Android 本地优先试用版，面向首轮 10～15 位朋友的两周试用。
 
-## Getting Started
+## 已包含
 
-This project is a starting point for a Flutter application.
+- 今晚：文字或情绪记录；只有文字才触发可选 AI 追问、深化和短收束。
+- 本周：2～3 个候选主题、自定义主题、周情绪、周问、回答、回声与下一步。
+- 历史：每日记录与周场结果按时间回看，默认只读。
+- 设置：可选填写 DeepSeek API Key；没有 Key 也能使用本地问题和本地收束。
+- 数据：完整记录保存在设备 Drift SQLite；首次启动只在检测到旧数据时迁移旧版 JSON。
 
-A few resources to get you started if this is your first Flutter project:
+## 本地运行
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```bash
+flutter pub get
+dart run build_runner build
+flutter run
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 构建 APK
+
+```bash
+flutter build apk --release
+```
+
+产物位于 `build/app/outputs/flutter-apk/app-release.apk`。
+
+本轮明确不包含账号、云同步、自动通知、导出/导入和 API Key 加密存储；这些留到试用反馈后处理。

@@ -11,10 +11,95 @@ const state = {
   session: null,
   selectedArchiveDay: null,
   nightDraft: "",
+  nightEmotion: "",
   weekLoaded: false,
   week: null,
 };
 const $ = (selector) => document.querySelector(selector);
+const EMOTIONS = ["轻松", "期待", "犹豫", "负担", "烦躁", "想靠近", "想逃开", "说不清"];
+const REMINDER_KEY = "night-weekly-reminder";
+
+function renderEmotionPicker(selector, current, onChange, disabled = false) {
+  const picker = $(selector);
+  if (!picker) return;
+  picker.replaceChildren(
+    ...EMOTIONS.map((emotion) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "emotion-choice" + (emotion === current ? " is-selected" : "");
+      button.textContent = emotion;
+      button.setAttribute("aria-pressed", emotion === current ? "true" : "false");
+      button.disabled = disabled;
+      button.onclick = () => onChange(emotion);
+      return button;
+    })
+  );
+}
+
+function updateEmotionCaption(selector, value, emptyText = "不选也可以") {
+  const target = $(selector);
+  if (target) target.textContent = value || emptyText;
+}
+
+function readWeeklyReminder() {
+  try {
+    return {
+      enabled: false,
+      time: "20:00",
+      lastWeek: "",
+      ...JSON.parse(localStorage.getItem(REMINDER_KEY) || "{}"),
+    };
+  } catch (_) {
+    return { enabled: false, time: "20:00", lastWeek: "" };
+  }
+}
+
+function writeWeeklyReminder(settings) {
+  localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
+}
+
+function reminderWeekKey(value = new Date()) {
+  return localDateText(startOfWeek(value));
+}
+
+function checkWeeklyReminder() {
+  const settings = readWeeklyReminder();
+  if (!settings.enabled) return;
+  const now = new Date();
+  if (![0, 1].includes(now.getDay())) return;
+  const [hour, minute] = String(settings.time || "20:00").split(":").map(Number);
+  if (now.getHours() < hour || (now.getHours() === hour && now.getMinutes() < minute)) return;
+  const weekKey = reminderWeekKey(now);
+  if (settings.lastWeek === weekKey) return;
+  settings.lastWeek = weekKey;
+  writeWeeklyReminder(settings);
+  const message = "周日 / 周一推荐看一眼本周。没有截止时间，想晚一点也可以。";
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("夜记", { body: message });
+  }
+  const reminderMessage = $("#reminder-message");
+  if (reminderMessage) reminderMessage.textContent = message;
+}
+
+function loadWeeklyReminder() {
+  const settings = readWeeklyReminder();
+  $("#weekly-reminder-enabled").checked = Boolean(settings.enabled);
+  $("#weekly-reminder-time").value = settings.time || "20:00";
+  checkWeeklyReminder();
+}
+
+async function saveWeeklyReminder() {
+  const enabled = $("#weekly-reminder-enabled").checked;
+  const time = $("#weekly-reminder-time").value || "20:00";
+  if (enabled && "Notification" in window && Notification.permission === "default") {
+    await Notification.requestPermission();
+  }
+  const previous = readWeeklyReminder();
+  writeWeeklyReminder({ enabled, time, lastWeek: previous.lastWeek || "" });
+  $("#reminder-message").textContent = enabled
+    ? "已保存。每周最多提醒一次，错过也不用补。"
+    : "提醒已关闭。";
+}
 
 function formatApiError(detail, fallback = "请求失败，请稍后重试。") {
   if (!detail) return fallback;
@@ -83,7 +168,7 @@ function padFromSession(session) {
     .join("\n\n");
 }
 
-function hasNightWriting(session, draft = state.nightDraft) {
+function hasNightText(session, draft = state.nightDraft) {
   if (String(draft || "").trim()) return true;
   return fixedQas(session).some((qa) => String(qa.answer || "").trim());
 }
@@ -142,10 +227,21 @@ function collectAnswersPayload() {
 
 function appendLegacyNightNodes(container, session) {
   const items = fixedQas(session).filter((qa) => String(qa.answer || "").trim());
+  const emotion = String(session?.emotion || "").trim();
+  if (emotion) {
+    const section = document.createElement("div");
+    section.className = "summary-section";
+    const h = document.createElement("h3");
+    h.textContent = "当时的分量";
+    const text = document.createElement("div");
+    text.textContent = emotion;
+    section.append(h, text);
+    container.append(section);
+  }
   if (!items.length) {
     const p = document.createElement("p");
     p.className = "muted";
-    p.textContent = "写下过，还没收一收。";
+    p.textContent = emotion ? "只留下了一个情绪，没有触发 AI。" : "写下过，还没收一收。";
     container.append(p);
     return;
   }
@@ -194,6 +290,7 @@ async function withLoading(buttonOrNull, loadingText, work) {
 
 function renderTonight(session) {
   state.session = session;
+  state.nightEmotion = session.emotion || "";
   clearNotice();
   $("#tonight-kicker").textContent = formatKicker(session.date, session.status);
 
@@ -211,6 +308,16 @@ function renderTonight(session) {
     if (!state.nightDraft) state.nightDraft = padFromSession(session);
     pad.value = state.nightDraft;
     pad.disabled = asking || done;
+    renderEmotionPicker(
+      "#tonight-emotions",
+      state.nightEmotion,
+      (emotion) => {
+        state.nightEmotion = emotion;
+        updateEmotionCaption("#tonight-emotion-value", emotion);
+      },
+      asking
+    );
+    updateEmotionCaption("#tonight-emotion-value", state.nightEmotion);
   }
 
   if (done) {
@@ -225,7 +332,7 @@ function renderTonight(session) {
 
   doneBlock.classList.add("hidden");
 
-  const showAskBtn = writing && hasNightWriting(session, pad.value);
+  const showAskBtn = writing && hasNightText(session, pad.value);
   $("#btn-ask").classList.toggle("hidden", !showAskBtn);
   $("#btn-save").classList.toggle("hidden", asking);
   $("#btn-done").classList.toggle("hidden", asking);
@@ -317,14 +424,18 @@ async function saveNight(quiet = false) {
     return;
   }
   state.nightDraft = $("#night-pad").value;
-  if (!String(state.nightDraft).trim()) {
-    showNotice("还没写字。写一点再存，或直接离开也没关系。");
+  state.nightEmotion = state.nightEmotion || state.session.emotion || "";
+  if (!String(state.nightDraft).trim() && !state.nightEmotion) {
+    showNotice("写一句，或只标一个情绪。也可以直接离开，不必完成。");
     return;
   }
   try {
     const saved = await api(`/sessions/${state.session.date}/answers`, {
       method: "PUT",
-      body: JSON.stringify({ answers: collectAnswersPayload() }),
+      body: JSON.stringify({
+        answers: collectAnswersPayload(),
+        emotion: state.nightEmotion,
+      }),
     });
     const draft = state.nightDraft;
     renderTonight(saved);
@@ -341,7 +452,7 @@ async function saveNight(quiet = false) {
 
 async function finishNight() {
   try {
-    if (String($("#night-pad").value || "").trim()) {
+    if (String($("#night-pad").value || "").trim() || state.nightEmotion) {
       await saveNight(true);
     }
     clearNotice();
@@ -353,6 +464,10 @@ async function finishNight() {
 
 async function startAsk() {
   const button = $("#btn-ask");
+  if (!hasNightText(state.session, $("#night-pad").value)) {
+    showNotice("只标了情绪，今晚不触发 AI。想问自己一句时，再写一点文字。");
+    return;
+  }
   try {
     await saveNight(true);
     await withLoading(button, "正想着怎么问自己…", async () => {
@@ -429,17 +544,10 @@ function startOfWeek(dateObj) {
 }
 
 function collectWeekAnswersFromDom() {
-  const bootstrap = $("#week-bootstrap-topic");
-  const answers = bootstrap
-    ? [{
-        question: "最近最想搞清楚的一件事（起步时可选）",
-        answer: bootstrap.value || "",
-      }]
-    : [];
-  return answers.concat([...document.querySelectorAll("#week-outline-list .outline-pad")].map((area) => ({
+  return [...document.querySelectorAll("#week-outline-list .outline-pad")].map((area) => ({
     question: area.dataset.question || "",
     answer: area.value || "",
-  })));
+  }));
 }
 
 function renderWeekOutline(week) {
@@ -468,6 +576,48 @@ function renderWeekOutline(week) {
   );
 }
 
+function renderWeekTopics(week) {
+  const list = $("#week-topic-list");
+  const closed = week.status === "closed";
+  const locked = closed || Boolean(String(week.followup_question || "").trim());
+  const selected = String(week.selected_topic || "").trim();
+  list.replaceChildren(
+    ...(week.candidate_topics || []).map((topic) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "topic-choice" + (topic === selected ? " is-selected" : "");
+      button.textContent = topic;
+      button.disabled = locked;
+      button.setAttribute("aria-pressed", topic === selected ? "true" : "false");
+      button.onclick = () => {
+        $("#week-topic-custom").value = topic;
+        state.week.selected_topic = topic;
+        renderWeekTopics(state.week);
+        $("#btn-week-ask").classList.remove("hidden");
+      };
+      return button;
+    })
+  );
+  const custom = $("#week-topic-custom");
+  custom.value = selected;
+  custom.disabled = locked;
+  $("#btn-week-topics").classList.toggle(
+    "hidden",
+    closed || locked || Boolean((week.candidate_topics || []).length)
+  );
+  renderEmotionPicker(
+    "#week-emotions",
+    week.followup_emotion || "",
+    (emotion) => {
+      state.week.followup_emotion = emotion;
+      updateEmotionCaption("#week-emotion-value", emotion, "可跳过");
+    },
+    locked
+  );
+  updateEmotionCaption("#week-emotion-value", week.followup_emotion || "", "可跳过");
+  $("#week-topic-section").classList.toggle("is-locked", locked);
+}
+
 function applyWeekView(week) {
   state.week = week;
   const closed = week.status === "closed";
@@ -476,7 +626,7 @@ function applyWeekView(week) {
   const hasQ = Boolean(String(week.followup_question || "").trim());
   const bootstrapMode = Boolean(week.bootstrap_mode);
   let stats = `近 7 日有痕迹 ${n} 天`;
-  if (bootstrapMode && !closed) stats = "起步模式：还没有日痕迹，也可以先问自己一句";
+  if (bootstrapMode && !closed) stats = "起步模式：还没有日痕迹，也可以先从自己写的主题开始";
   else if (empty > 0 && !closed) stats += `，另有 ${empty} 天空着——缺几天也没关系。`;
   $("#week-stats").textContent = stats;
 
@@ -484,19 +634,17 @@ function applyWeekView(week) {
   if (closed) {
     hint.textContent = "";
   } else if (n === 0) {
-    hint.textContent = "先写一件最近最想搞清楚的事，下面就能直接开始。";
+    hint.textContent = "还没有日痕迹时，也可以自己写一件最近想搞清楚的事。";
+  } else if (!String(week.selected_topic || "").trim()) {
+    hint.textContent = "先选一件，再问自己一句。周日/周一推荐，没有截止时间。";
   } else if (!hasQ) {
-    hint.textContent = "看着痕迹，点「问自己一句（本周）」——只问感受与分量，不是周报。";
+    hint.textContent = "主题选好了。情绪可跳过，接着只问自己一句。";
   } else {
     hint.textContent = "把当时的感觉写下来，再点「收这一周」。";
   }
 
   renderWeekOutline(week);
-  const bootstrap = $("#week-bootstrap");
-  const bootstrapTopic = $("#week-bootstrap-topic");
-  bootstrap.classList.toggle("hidden", closed || n > 0);
-  bootstrapTopic.value = week.bootstrap_topic || "";
-  bootstrapTopic.disabled = closed || n > 0;
+  renderWeekTopics(week);
   $("#week-traces-body").textContent =
     String(week.traces || "").trim() || "近七日还没有可汇总的夜记。先去「今晚」写一点。";
 
@@ -511,12 +659,18 @@ function applyWeekView(week) {
   $("#week-followup-section").classList.toggle("hidden", closed);
   $("#week-traces").classList.toggle("hidden", closed);
   $("#week-outline-section").classList.toggle("hidden", closed);
-  $("#btn-week-ask").classList.toggle("hidden", closed || hasQ);
+  $("#week-topic-section").classList.toggle("hidden", closed);
+  $("#btn-week-ask").classList.toggle(
+    "hidden",
+    closed || hasQ || !String(week.selected_topic || "").trim()
+  );
   $("#btn-week-save-answer").classList.toggle("hidden", closed || !hasQ);
   $("#btn-week-close").classList.toggle("hidden", closed || !hasQ);
   $("#week-closed").classList.toggle("hidden", !closed);
 
   if (closed) {
+    $("#week-closed-topic").textContent = week.selected_topic || "（没有单独选主题）";
+    $("#week-closed-emotion").textContent = week.followup_emotion || "（跳过）";
     $("#week-closed-q").textContent = week.followup_question || "（当时没有留下问句）";
     $("#week-closed-a").textContent = week.followup_answer || "（当时没有留下回答）";
     $("#week-overview").textContent = week.echo || week.overview || "";
@@ -593,7 +747,19 @@ async function renderWeekShell(force = false) {
   }
   const week = await api("/weeks/current");
   applyWeekView(week);
-  await renderWeekStrip(week);
+  if (
+    (week.trace_days || 0) > 0 &&
+    !(week.candidate_topics || []).length &&
+    !String(week.selected_topic || "").trim() &&
+    !String(week.followup_question || "").trim()
+  ) {
+    const withTopics = await api("/weeks/" + week.week_start + "/topics", {
+      method: "POST",
+      body: JSON.stringify({ use_llm: true }),
+    });
+    applyWeekView(withTopics);
+  }
+  await renderWeekStrip(state.week || week);
   state.weekLoaded = true;
 }
 
@@ -612,16 +778,61 @@ async function saveWeekAnswers(quiet = false) {
   }
 }
 
+async function saveWeekTopicChoice(quiet = false) {
+  if (!state.week || state.week.status === "closed") return state.week;
+  const topic = String($("#week-topic-custom").value || "").trim();
+  if (!topic) throw new Error("先选一件事，或自己写一个想谈的主题。");
+  const saved = await api("/weeks/" + state.week.week_start + "/topic", {
+    method: "PUT",
+    body: JSON.stringify({
+      topic,
+      emotion: state.week.followup_emotion || "",
+    }),
+  });
+  applyWeekView(saved);
+  if (!quiet) {
+    const note = $("#week-shell-note");
+    note.textContent = "这件事已选好。";
+    note.classList.remove("hidden");
+  }
+  return saved;
+}
+
+async function requestWeekTopics() {
+  if (!state.week) return;
+  const note = $("#week-shell-note");
+  note.classList.remove("hidden");
+  if ((state.week.trace_days || 0) === 0) {
+    note.textContent = "还没有日痕迹。先自己写一件最近想搞清楚的事。";
+    $("#week-topic-custom").focus();
+    return;
+  }
+  try {
+    const topics = await withLoading($("#btn-week-topics"), "正在捞几条线索…", async () =>
+      api("/weeks/" + state.week.week_start + "/topics", {
+        method: "POST",
+        body: JSON.stringify({ use_llm: true }),
+      })
+    );
+    applyWeekView(topics);
+    note.textContent = "从这周留下的痕迹里，捞出几件可能值得谈的事。";
+  } catch (error) {
+    note.textContent = error.message || "这次没捞出来，可以自己写一件。";
+  }
+}
+
 async function askWeekFollowup() {
   if (!state.week) return;
   const note = $("#week-shell-note");
   note.classList.remove("hidden");
-  if ((state.week.trace_days || 0) === 0 && !String($("#week-bootstrap-topic").value || "").trim()) {
-    note.textContent = "先填一件最近最想搞清楚的事，或去「今晚」写一点。";
+  if (!String($("#week-topic-custom").value || "").trim()) {
+    note.textContent = "先选一件，或自己写一个想谈的主题。";
+    $("#week-topic-custom").focus();
     return;
   }
   note.textContent = "正在想一句值得问自己的话…";
   try {
+    await saveWeekTopicChoice(true);
     await saveWeekAnswers(true);
     const week = await api(`/weeks/${state.week.week_start}/followup`, {
       method: "POST",
@@ -654,8 +865,15 @@ async function closeCurrentWeek() {
   if (!state.week) return;
   const note = $("#week-shell-note");
   note.classList.remove("hidden");
-  if ((state.week.trace_days || 0) === 0 && !String($("#week-bootstrap-topic").value || "").trim()) {
-    note.textContent = "先填一件最近最想搞清楚的事，或去「今晚」写一点。";
+  if (!String(state.week.selected_topic || "").trim()) {
+    if (!String($("#week-topic-custom").value || "").trim()) {
+      note.textContent = "先选一件，或自己写一个想谈的主题。";
+      return;
+    }
+    await saveWeekTopicChoice(true);
+  }
+  if (!String(state.week.followup_question || "").trim()) {
+    note.textContent = "先问自己一句，再收这一周。";
     return;
   }
   try {
@@ -766,7 +984,18 @@ async function loadArchive(day, hasRecord) {
     const wt = document.createElement("div");
     wt.textContent = padFromSession(session) || "（正文已收进收束）";
     written.append(wh, wt);
-    body.append(written, ...buildSummaryNodes(session.summary));
+    const pieces = [written];
+    if (String(session.emotion || "").trim()) {
+      const emotion = document.createElement("div");
+      emotion.className = "summary-section";
+      const eh = document.createElement("h3");
+      eh.textContent = "当时的分量";
+      const et = document.createElement("div");
+      et.textContent = session.emotion;
+      emotion.append(eh, et);
+      pieces.push(emotion);
+    }
+    body.append(...pieces, ...buildSummaryNodes(session.summary));
     revealArchiveDetail();
   } catch (error) {
     body.replaceChildren();
@@ -780,6 +1009,7 @@ async function loadArchive(day, hasRecord) {
 
 async function loadSettings() {
   const s = await api("/settings");
+  loadWeeklyReminder();
   const form = $("#settings-form");
   for (const [key, value] of Object.entries(s)) {
     if (!form.elements[key]) continue;
@@ -828,7 +1058,7 @@ document.querySelectorAll(".nav").forEach((button) =>
 
 $("#night-pad").addEventListener("input", () => {
   state.nightDraft = $("#night-pad").value;
-  const show = hasNightWriting(state.session, state.nightDraft);
+  const show = hasNightText(state.session, state.nightDraft);
   if (state.session?.status === "pending" || state.session?.status === "answered") {
     $("#btn-ask").classList.toggle("hidden", !show);
   }
@@ -842,6 +1072,12 @@ $("#btn-week-save").onclick = () => saveWeekAnswers(false).catch((error) => {
   const note = $("#week-shell-note");
   note.textContent = error.message;
   note.classList.remove("hidden");
+});
+$("#btn-week-topics").onclick = () => requestWeekTopics();
+$("#week-topic-custom").addEventListener("input", () => {
+  if (!state.week || state.week.status === "closed" || state.week.followup_question) return;
+  state.week.selected_topic = String($("#week-topic-custom").value || "").trim();
+  $("#btn-week-ask").classList.toggle("hidden", !state.week.selected_topic);
 });
 $("#btn-week-ask").onclick = () => askWeekFollowup();
 $("#btn-week-save-answer").onclick = () =>
@@ -858,6 +1094,7 @@ $("#week-followup-a").addEventListener("blur", () => {
   }
 });
 $("#settings-form").onsubmit = saveSettings;
+$("#btn-reminder-save").onclick = () => saveWeeklyReminder().catch(() => {});
 $("#prev-month").onclick = () => {
   state.current.setMonth(state.current.getMonth() - 1);
   renderCalendar();

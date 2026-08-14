@@ -41,6 +41,9 @@ class WeeklyReview(Base):
     # JSON 数组：[{"question": "...", "answer": "..."}, ...] — 可选提纲热身
     answers_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     # 核心资产：周问 + 回答
+    candidate_topics_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    selected_topic: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    followup_emotion: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     followup_question: Mapped[str] = mapped_column(Text, default="", nullable=False)
     followup_answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # 极短收束：echo 存 overview；另两键独立列

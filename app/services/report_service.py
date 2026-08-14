@@ -22,18 +22,28 @@ def _fixed_body(session: DailySession) -> str:
 def day_has_trace(session: DailySession) -> bool:
     if session.summary is not None and str(session.summary.raw_markdown or "").strip():
         return True
-    return bool(_fixed_body(session))
+    return bool(_fixed_body(session) or str(getattr(session, "emotion", "") or "").strip())
 
 
 def format_day_trace(session: DailySession) -> str | None:
     """单日痕迹块；无 Summary 且无正文时返回 None。"""
     day = session.date.isoformat()
+    emotion = str(getattr(session, "emotion", "") or "").strip()
     if session.summary is not None and str(session.summary.raw_markdown or "").strip():
-        return f"## {day}\n{session.summary.raw_markdown.strip()}"
+        lines = [f"## {day}"]
+        if emotion:
+            lines.append(f"情绪：{emotion}")
+        lines.append(session.summary.raw_markdown.strip())
+        return "\n".join(lines)
     body = _fixed_body(session)
-    if not body:
+    if not body and not emotion:
         return None
-    return f"## {day}\n（未收束的夜记）\n{body}"
+    lines = [f"## {day}", "（未收束的夜记）"]
+    if emotion:
+        lines.append(f"情绪：{emotion}")
+    if body:
+        lines.append(body)
+    return "\n".join(lines)
 
 
 def sessions_in_range(db: Session, start: date, end: date) -> list[DailySession]:

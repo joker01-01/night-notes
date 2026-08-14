@@ -32,6 +32,7 @@ class SummaryOut(BaseModel):
 class SessionOut(BaseModel):
     date: date
     status: str
+    emotion: str = ""
     qas: list[QAOut]
     summary: SummaryOut | None = None
     max_followup_rounds: int = 2
@@ -44,6 +45,7 @@ class AnswerInput(BaseModel):
 
 class AnswersUpdate(BaseModel):
     answers: list[AnswerInput]
+    emotion: str = Field(default="", max_length=40)
 
 
 class FollowupAnswerIn(BaseModel):
@@ -116,6 +118,15 @@ class WeekFollowupIn(BaseModel):
     use_llm: bool = True
 
 
+class WeekTopicsIn(BaseModel):
+    use_llm: bool = True
+
+
+class WeekTopicUpdate(BaseModel):
+    topic: str = Field(default="", max_length=500)
+    emotion: str = Field(default="", max_length=40)
+
+
 class WeekFollowupAnswerIn(BaseModel):
     answer: str = Field(default="", max_length=20000)
 
@@ -129,6 +140,9 @@ class WeekOut(BaseModel):
     week_end: date
     status: str
     answers: list[WeekAnswerItem]
+    candidate_topics: list[str] = Field(default_factory=list)
+    selected_topic: str = ""
+    followup_emotion: str = ""
     followup_question: str = ""
     followup_answer: str = ""
     overview: str = ""  # 收束 echo

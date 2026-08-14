@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,6 +21,7 @@ from app.services.review_service import (
     summarize_session,
     _fixed_material_lines,
 )
+from app.services.report_service import aggregate_day_traces
 
 
 class FakeProvider:
@@ -148,6 +150,19 @@ def test_clearing_answers_reverts_pending_status() -> None:
     cleared = save_answers(db, answered, {answered.qas[0].id: "  "})
     assert cleared.status == "pending"
     assert cleared.qas[0].answer == ""
+
+
+def test_emotion_only_is_a_trace_but_does_not_trigger_ai() -> None:
+    db = make_db()
+    session = create_session_if_needed(db, date(2026, 7, 28))
+    saved = save_answers(db, session, {session.qas[0].id: ""}, emotion="犹豫")
+    assert saved.status == "answered"
+    assert saved.emotion == "犹豫"
+    traces, count = aggregate_day_traces(db, date(2026, 7, 28), date(2026, 7, 28))
+    assert count == 1
+    assert "情绪：犹豫" in traces
+    with pytest.raises(ValueError, match="先写一点"):
+        start_followup(db, saved, FakeProvider())
 
 
 def test_create_session_is_idempotent_for_same_day() -> None:
