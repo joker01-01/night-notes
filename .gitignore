@@ -8,3 +8,6 @@ data/
 !mobile/lib/data/**
 *.db
 .uvicorn-live.*
+
+# 安全审计产物：留在本机备查，不入库
+piolium/
