@@ -40,6 +40,7 @@ class SessionOut(BaseModel):
     emotion: str = ""
     qas: list[QAOut]
     summary: SummaryOut | None = None
+    summary_soft_deleted: bool = False
     max_followup_rounds: int = 2
 
 

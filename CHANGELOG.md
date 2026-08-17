@@ -57,3 +57,8 @@
 - [2026-07-28 00:00] feat: 实现原生本地 Web 界面，含问答、日历回看和设置页；涉及 app/static/。
 - [2026-07-28 00:00] feat: 搭建 AI 每日复盘助手核心脚手架，完成 FastAPI、SQLite 模型、可插拔 LLM、调度任务、通知抽象和核心测试；涉及 app/、tests/、scripts/。
 - [2026-07-28 00:00] chore: 初始化项目开发日志与进度追踪机制；涉及 CHANGELOG.md、PROGRESS.md、TODO.md。
+- [2026-08-17] fix/security FIX-10b: LLM 触发路由支持 X-Request-Id 幂等占位，重复提交返回 409。
+- [2026-08-17] fix/security FIX-10c: LLM 触发 10 次/分钟、设置写入 20 次/分钟令牌桶限流，超限 429。
+- [2026-08-17] fix/security FIX-11b: 新增「恢复刚才的收束」入口（软删除复原），并修正「再写一遍」缺 confirm 体的前端回归。
+- [2026-08-17] fix/security FIX-16b: 新增 CI（pytest + pip-audit）；基础镜像锁定 digest。
+- [2026-08-17] fix/security FIX-17b: 设置保存改为单条条件 UPDATE（version 乐观锁），并发写入恰一方成功。

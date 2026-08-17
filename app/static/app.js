@@ -112,6 +112,11 @@ function formatApiError(detail, fallback = "请求失败，请稍后重试。") 
   return fallback;
 }
 
+function newRequestId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function api(path, options = {}) {
   let token = sessionStorage.getItem(AUTH_TOKEN_KEY);
   if (!token && path !== "/bootstrap-token") {
@@ -123,10 +128,12 @@ async function api(path, options = {}) {
     token = bootstrapBody.token;
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
   }
-  const headers = new Headers(options.headers || {});
+  const { requestId, ...fetchOptions } = options;
+  const headers = new Headers(fetchOptions.headers || {});
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(`/api${path}`, { ...options, headers });
+  if (requestId) headers.set("X-Request-Id", requestId);
+  const response = await fetch(`/api${path}`, { ...fetchOptions, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(formatApiError(body.detail));
   return body;
@@ -357,6 +364,7 @@ function renderTonight(session) {
   } else {
     askPanel.classList.add("hidden");
   }
+  $("#btn-restore")?.classList.toggle("hidden", !session.summary_soft_deleted);
 }
 
 function renderAskPanel(session) {
@@ -485,7 +493,7 @@ async function startAsk() {
   try {
     await saveNight(true);
     await withLoading(button, "正想着怎么问自己…", async () => {
-      renderTonight(await api(`/sessions/${state.session.date}/followup/start`, { method: "POST" }));
+      renderTonight(await api(`/sessions/${state.session.date}/followup/start`, { method: "POST", requestId: newRequestId() }));
       showNotice("又问回自己一句。慢慢答，或今晚先到这。");
     });
   } catch (error) {
@@ -512,7 +520,7 @@ async function submitAskAnswer() {
 async function runDeeper() {
   try {
     await withLoading(null, "正想着怎么问自己…", async () => {
-      renderTonight(await api(`/sessions/${state.session.date}/followup/deeper`, { method: "POST" }));
+      renderTonight(await api(`/sessions/${state.session.date}/followup/deeper`, { method: "POST", requestId: newRequestId() }));
       showNotice("又问回自己一句。");
     });
   } catch (error) {
@@ -527,6 +535,7 @@ async function runSummarize(skip, loadingText) {
         await api(`/sessions/${state.session.date}/summarize`, {
           method: "POST",
           body: JSON.stringify({ skip: Boolean(skip) }),
+          requestId: newRequestId(),
         })
       );
       showNotice("今晚的夜记已收好。");
@@ -542,8 +551,20 @@ async function rewriteNight() {
   if (!confirm("会清掉今晚的收束和后来问自己的话，保留已写正文。确定再写一遍？")) return;
   try {
     state.nightDraft = "";
-    renderTonight(await api(`/sessions/${state.session.date}/recoach`, { method: "POST" }));
-    showNotice("已回到书写。");
+    renderTonight(await api(`/sessions/${state.session.date}/recoach`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    }));
+    showNotice("已回到书写。刚才的收束被收起来了，随时可恢复。");
+  } catch (error) {
+    showNotice(error.message);
+  }
+}
+
+async function restoreNight() {
+  try {
+    renderTonight(await api(`/sessions/${state.session.date}/restore`, { method: "POST" }));
+    showNotice("刚才的收束已恢复。");
   } catch (error) {
     showNotice(error.message);
   }
@@ -827,6 +848,7 @@ async function requestWeekTopics() {
       api("/weeks/" + state.week.week_start + "/topics", {
         method: "POST",
         body: JSON.stringify({ use_llm: true }),
+        requestId: newRequestId(),
       })
     );
     applyWeekView(topics);
@@ -852,6 +874,7 @@ async function askWeekFollowup() {
     const week = await api(`/weeks/${state.week.week_start}/followup`, {
       method: "POST",
       body: JSON.stringify({ use_llm: true }),
+      requestId: newRequestId(),
     });
     applyWeekView(week);
     await renderWeekStrip(week);
@@ -897,6 +920,7 @@ async function closeCurrentWeek() {
     const closed = await api(`/weeks/${state.week.week_start}/close`, {
       method: "POST",
       body: JSON.stringify({ use_llm: true }),
+      requestId: newRequestId(),
     });
     applyWeekView(closed);
     await renderWeekStrip(closed);
@@ -912,7 +936,7 @@ async function resummarizeWeek() {
   note.classList.remove("hidden");
   note.textContent = "正在再收一下…";
   try {
-    const week = await api(`/weeks/${state.week.week_start}/summarize`, { method: "POST" });
+    const week = await api(`/weeks/${state.week.week_start}/summarize`, { method: "POST", requestId: newRequestId() });
     applyWeekView(week);
     await renderWeekStrip(week);
     note.textContent = "收束已更新。问句和回答没有改。";
@@ -1025,6 +1049,7 @@ async function loadArchive(day, hasRecord) {
 async function loadSettings() {
   const s = await api("/settings");
   loadWeeklyReminder();
+  state.settings = s;
   const form = $("#settings-form");
   for (const [key, value] of Object.entries(s)) {
     if (!form.elements[key]) continue;
@@ -1041,17 +1066,22 @@ async function saveSettings(event) {
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form));
   data.context_days = Number(data.context_days);
+  if (state.settings?.version != null) data.version = state.settings.version;
   data.question_templates = String(data.question_templates || "")
     .split("\n")
     .map((value) => value.trim())
     .filter(Boolean);
   try {
     const s = await api("/settings", { method: "PUT", body: JSON.stringify(data) });
+    state.settings = s;
     $("#settings-message").textContent = "已保存到本机，定时任务已更新。";
     $("#key-status").textContent = s.api_key_configured ? "已配置本地密钥（不会回显）" : "尚未配置密钥";
     form.elements.llm_api_key.value = "";
   } catch (error) {
     $("#settings-message").textContent = error.message;
+    if (error.message.includes("已被另一处修改")) {
+      loadSettings().catch(() => {});
+    }
   }
 }
 
@@ -1083,6 +1113,7 @@ $("#btn-save").onclick = () => saveNight().catch(() => {});
 $("#btn-done").onclick = () => finishNight();
 $("#btn-ask").onclick = () => startAsk().catch(() => {});
 $("#btn-rewrite").onclick = () => rewriteNight();
+$("#btn-restore").onclick = () => restoreNight();
 $("#btn-week-save").onclick = () => saveWeekAnswers(false).catch((error) => {
   const note = $("#week-shell-note");
   note.textContent = error.message;

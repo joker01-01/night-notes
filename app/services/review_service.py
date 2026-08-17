@@ -388,6 +388,24 @@ def summarize_session(
     return get_session(db, session.date) or session
 
 
+def restore_summary(db: Session, session: DailySession) -> DailySession:
+    """恢复最近一次「再写一遍」软删除的收束：自问问答未被物理删除，恢复即整体复原。"""
+    summary = session.summary
+    if summary is None or summary.deleted_at is None:
+        raise ValueError("没有可恢复的收束。")
+    claimed = db.execute(
+        update(DailySession)
+        .where(DailySession.id == session.id, DailySession.status == session.status)
+        .values(status=SessionStatus.SUMMARIZED.value)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再恢复。")
+    summary.deleted_at = None
+    db.commit()
+    return get_session(db, session.date) or session
+
+
 def session_to_schema(session: DailySession) -> SessionOut:
     summary = None
     if session.summary is not None and session.summary.deleted_at is None:
@@ -418,5 +436,6 @@ def session_to_schema(session: DailySession) -> SessionOut:
             for qa in session.qas
         ],
         summary=summary,
+        summary_soft_deleted=session.summary is not None and session.summary.deleted_at is not None,
         max_followup_rounds=MAX_FOLLOWUP_ROUNDS,
     )

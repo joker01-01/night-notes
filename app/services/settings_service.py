@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
+from typing import Any
+
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_config
@@ -91,22 +94,40 @@ def update_settings(db: Session, update: SettingsUpdate) -> Settings:
     provider = update.llm_provider if "llm_provider" in fields else settings.llm_provider
     base_url = update.llm_base_url if "llm_base_url" in fields else settings.llm_base_url
     validate_llm_base_url(base_url, provider)
+    changes: dict[str, Any] = {}
     if "llm_provider" in fields:
-        settings.llm_provider = update.llm_provider
+        changes["llm_provider"] = update.llm_provider
     # 设置页面留空时保持原密钥，避免读取接口泄漏并防止误清除。
     if "llm_api_key" in fields and update.llm_api_key:
-        settings.llm_api_key = encrypt_secret(update.llm_api_key)
+        changes["llm_api_key"] = encrypt_secret(update.llm_api_key)
     if "llm_base_url" in fields:
-        settings.llm_base_url = update.llm_base_url
+        changes["llm_base_url"] = update.llm_base_url
     if "llm_model" in fields:
-        settings.llm_model = update.llm_model
+        changes["llm_model"] = update.llm_model
     if "question_time" in fields:
-        settings.question_time = update.question_time
+        changes["question_time"] = update.question_time
     if "context_days" in fields:
-        settings.context_days = update.context_days
+        changes["context_days"] = update.context_days
     if "question_templates" in fields:
-        settings.question_templates = json.dumps(update.question_templates, ensure_ascii=False)
-    settings.version += 1
+        changes["question_templates"] = json.dumps(update.question_templates, ensure_ascii=False)
+    changes["version"] = settings.version + 1
+    # 单条条件 UPDATE：并发写入只有一个能成功，另一个得到 409。
+    try:
+        claimed = db.execute(
+            sa_update(Settings)
+            .where(Settings.id == 1, Settings.version == settings.version)
+            .values(**changes)
+        )
+    except OperationalError as exc:
+        # WAL 读快照升级冲突表现为 database is locked（busy_timeout 不覆盖），
+        # 对调用方等同于“已被另一处修改”。
+        db.rollback()
+        if "locked" in str(exc).lower():
+            raise ConflictError("设置已被另一处修改，请先重新读取后再保存。") from exc
+        raise
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("设置已被另一处修改，请先重新读取后再保存。")
     db.commit()
     db.refresh(settings)
     return settings

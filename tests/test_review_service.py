@@ -16,7 +16,9 @@ from app.services.review_service import (
     deepen_followup,
     recent_summary_context,
     reset_for_recoach,
+    restore_summary,
     save_answers,
+    session_to_schema,
     start_followup,
     summarize_session,
     _fixed_material_lines,
@@ -113,6 +115,27 @@ def test_deepen_and_recoach() -> None:
     # 自问与收束都保留在库中，便于后续恢复昨日收束。
     assert any(qa.qa_type == "followup" for qa in reset.qas)
     assert reset.qas[0].answer == "继续推进项目"
+
+
+def test_recoach_then_restore_brings_back_summary() -> None:
+    db = make_db()
+    provider = FakeProvider()
+    session = create_session_if_needed(db, date(2026, 7, 28))
+    session = save_answers(db, session, {session.qas[0].id: "继续推进项目"})
+    session = start_followup(db, session, provider)
+    pending = next(qa for qa in session.qas if qa.qa_type == "followup")
+    session = answer_followup(db, session, pending.id, "其实不知道从哪开始")
+    session = summarize_session(db, session, provider, skip=False)
+    reset = reset_for_recoach(db, session)
+    assert reset.summary.deleted_at is not None
+    restored = restore_summary(db, reset)
+    assert restored.status == "summarized"
+    assert restored.summary.deleted_at is None
+    out = session_to_schema(restored)
+    assert out.summary is not None and out.summary_soft_deleted is False
+    # 重复恢复没有可恢复对象时应报错
+    with pytest.raises(ValueError):
+        restore_summary(db, restored)
 
 
 def test_recent_summaries_still_readable_for_context() -> None:
