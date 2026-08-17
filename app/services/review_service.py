@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -17,6 +17,7 @@ from app.llm.prompts import (
     build_review_messages,
 )
 from app.models import DailySession, QA, QAType, SessionStatus, Summary
+from app.core.errors import ConflictError
 from app.schemas import QAOut, SessionOut, SummaryOut
 
 logger = logging.getLogger(__name__)
@@ -135,8 +136,8 @@ def save_answers(
     *,
     emotion: str = "",
 ) -> DailySession:
-    if session.status in {SessionStatus.FOLLOWING_UP.value, SessionStatus.SUMMARIZED.value}:
-        raise ValueError("正在自问或已收过一收时，今晚正文暂不可改。可先「再写一遍」。")
+    if session.status not in {SessionStatus.PENDING.value, SessionStatus.ANSWERED.value}:
+        raise ConflictError("状态已变化，请刷新后再保存。")
     fixed_ids = {qa.id for qa in _fixed_qas(session)}
     unknown = set(answers) - fixed_ids
     if unknown:
@@ -144,26 +145,27 @@ def save_answers(
     for qa in _fixed_qas(session):
         if qa.id in answers:
             qa.answer = answers[qa.id].strip()
-    session.emotion = (emotion or "").strip()
-    if any(qa.answer for qa in _fixed_qas(session)) or session.emotion:
-        session.status = SessionStatus.ANSWERED.value
-    else:
-        session.status = SessionStatus.PENDING.value
+    next_status = SessionStatus.ANSWERED.value if any(qa.answer for qa in _fixed_qas(session)) or (emotion or "").strip() else SessionStatus.PENDING.value
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == session.status).values(status=next_status, emotion=(emotion or "").strip()))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再保存。")
     db.commit()
     return get_session(db, session.date) or session
 
 
 def reset_for_recoach(db: Session, session: DailySession) -> DailySession:
     """清除收束与自问，保留今晚正文，供重开。"""
-    for qa in list(_followup_qas(session)):
-        db.delete(qa)
     if session.summary is not None:
-        db.delete(session.summary)
-        session.summary = None
+        session.summary.deleted_at = datetime.now()
     if any(qa.answer for qa in _fixed_qas(session)):
         session.status = SessionStatus.ANSWERED.value
     else:
         session.status = SessionStatus.PENDING.value
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status != SessionStatus.SUMMARIZING.value).values(status=SessionStatus.ANSWERED.value if any(qa.answer for qa in _fixed_qas(session)) else SessionStatus.PENDING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再重开。")
     db.commit()
     return get_session(db, session.date) or session
 
@@ -182,33 +184,43 @@ def start_followup(db: Session, session: DailySession, provider: LLMProvider) ->
     fixed = _fixed_qas(session)
     if not any(qa.answer.strip() for qa in fixed):
         raise ValueError("先写一点今晚的内容，再问自己一句。")
-    session.status = SessionStatus.ANSWERED.value
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.ANSWERED.value).values(status=SessionStatus.FOLLOWUP_GENERATING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
     db.commit()
     messages = build_followup_messages(
         fixed_qa_lines=_fixed_material_lines(session),
         prior_followups=[],
         round_number=1,
     )
-    question = _clean_followup_question(provider.chat(messages))
+    try:
+        question = _clean_followup_question(provider.chat(messages))
+    except Exception:
+        db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.FOLLOWUP_GENERATING.value).values(status=SessionStatus.ANSWERED.value))
+        db.commit()
+        raise
     if not question:
         raise ValueError("模型这次没给出可用问句，请重试或先这样。")
-    session.qas.append(
-        QA(
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.FOLLOWUP_GENERATING.value).values(status=SessionStatus.FOLLOWING_UP.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
+    db.add(QA(
+            session_id=session.id,
             question=question,
             answer="",
-            order=_next_order(session),
+            order=_next_order(get_session(db, session.date) or session),
             qa_type=QAType.FOLLOWUP.value,
             round=1,
-        )
-    )
-    session.status = SessionStatus.FOLLOWING_UP.value
+        ))
     db.commit()
     return get_session(db, session.date) or session
 
 
 def answer_followup(db: Session, session: DailySession, qa_id: int, answer: str) -> DailySession:
     if session.status != SessionStatus.FOLLOWING_UP.value:
-        raise ValueError("当前不在自问阶段。")
+        raise ConflictError("状态已变化，请刷新后再保存。")
     target = next((qa for qa in _followup_qas(session) if qa.id == qa_id), None)
     if target is None:
         raise ValueError("这句自问不存在。")
@@ -219,13 +231,17 @@ def answer_followup(db: Session, session: DailySession, qa_id: int, answer: str)
     if not cleaned:
         raise ValueError("回答不能为空。")
     target.answer = cleaned
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.FOLLOWING_UP.value).values(status=SessionStatus.FOLLOWING_UP.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再保存。")
     db.commit()
     return get_session(db, session.date) or session
 
 
 def deepen_followup(db: Session, session: DailySession, provider: LLMProvider) -> DailySession:
     if session.status != SessionStatus.FOLLOWING_UP.value:
-        raise ValueError("当前不在自问阶段。")
+        raise ConflictError("状态已变化，请刷新后再试。")
     if _pending_followup(session) is not None:
         raise ValueError("请先回答当前这句，或跳过。")
     answered = [qa for qa in _followup_qas(session) if qa.answer.strip()]
@@ -235,23 +251,36 @@ def deepen_followup(db: Session, session: DailySession, provider: LLMProvider) -
     if current_round >= MAX_FOLLOWUP_ROUNDS:
         raise ValueError("自问最多两轮，可以收一收了。")
     next_round = current_round + 1
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.FOLLOWING_UP.value).values(status=SessionStatus.DEEPENING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
+    db.commit()
     messages = build_followup_messages(
         fixed_qa_lines=_fixed_material_lines(session),
         prior_followups=[(qa.question, qa.answer) for qa in answered],
         round_number=next_round,
     )
-    question = _clean_followup_question(provider.chat(messages))
+    try:
+        question = _clean_followup_question(provider.chat(messages))
+    except Exception:
+        db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.DEEPENING.value).values(status=SessionStatus.FOLLOWING_UP.value))
+        db.commit()
+        raise
     if not question:
         raise ValueError("模型这次没给出可用问句，请重试或直接收一收。")
-    session.qas.append(
-        QA(
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.DEEPENING.value).values(status=SessionStatus.FOLLOWING_UP.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
+    db.add(QA(
+            session_id=session.id,
             question=question,
             answer="",
-            order=_next_order(session),
+            order=_next_order(get_session(db, session.date) or session),
             qa_type=QAType.FOLLOWUP.value,
             round=next_round,
-        )
-    )
+        ))
     db.commit()
     return get_session(db, session.date) or session
 
@@ -277,6 +306,11 @@ def summarize_session(
     *,
     skip: bool = False,
 ) -> DailySession:
+    if session.status == SessionStatus.SUMMARIZED.value:
+        raise ConflictError("今晚已经收过一收了。")
+    if session.status not in {SessionStatus.ANSWERED.value, SessionStatus.FOLLOWING_UP.value}:
+        raise ConflictError("状态已变化，请刷新后再收束。")
+    expected_status = session.status
     fixed = _fixed_qas(session)
     if not any(qa.answer.strip() for qa in fixed):
         raise ValueError("先写一点今晚的内容，再收一收。")
@@ -303,13 +337,23 @@ def summarize_session(
     else:
         skip_note = ""
 
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == expected_status).values(status=SessionStatus.SUMMARIZING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再收束。")
+    db.commit()
     messages = build_review_messages(
         fixed_qa_lines=_fixed_material_lines(session),
         answered_followups=answered_followups,
         skipped=skipped,
         skip_note=skip_note,
     )
-    parts = _extract_review_json(provider.chat(messages))
+    try:
+        parts = _extract_review_json(provider.chat(messages))
+    except Exception:
+        db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.SUMMARIZING.value).values(status=expected_status))
+        db.commit()
+        raise
     raw = "\n\n".join(
         [
             "# 今日概要\n" + parts["overview"],
@@ -328,20 +372,25 @@ def summarize_session(
         "next_action": parts["next_action"],
         "lesson": parts["lesson"],
     }
-    if session.summary is None:
-        session.summary = Summary(**legacy, raw_markdown=raw)
+    fresh = get_session(db, session.date) or session
+    if fresh.summary is None:
+        fresh.summary = Summary(**legacy, raw_markdown=raw)
     else:
         for key, value in legacy.items():
-            setattr(session.summary, key, value)
-        session.summary.raw_markdown = raw
-    session.status = SessionStatus.SUMMARIZED.value
+            setattr(fresh.summary, key, value)
+        fresh.summary.raw_markdown = raw
+        fresh.summary.deleted_at = None
+    claimed = db.execute(update(DailySession).where(DailySession.id == session.id, DailySession.status == SessionStatus.SUMMARIZING.value).values(status=SessionStatus.SUMMARIZED.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再收束。")
     db.commit()
     return get_session(db, session.date) or session
 
 
 def session_to_schema(session: DailySession) -> SessionOut:
     summary = None
-    if session.summary is not None:
+    if session.summary is not None and session.summary.deleted_at is None:
         summary = SummaryOut(
             overview=session.summary.overview,
             learnings=session.summary.learnings,

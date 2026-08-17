@@ -7,7 +7,8 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.llm.prompts import (
@@ -15,6 +16,7 @@ from app.llm.prompts import (
     build_week_followup_messages,
     build_week_topics_messages,
 )
+from app.core.errors import ConflictError
 from app.llm.providers import LLMProvider
 from app.models.weekly import (
     COLD_START_QUESTION,
@@ -165,7 +167,14 @@ def get_or_create_week(db: Session, week_start: date) -> WeeklyReview:
         answers_json=_dump_answers(_default_answers()),
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(WeeklyReview).where(WeeklyReview.week_start == week_start))
+        if existing is not None:
+            return existing
+        raise
     db.refresh(row)
     return row
 
@@ -183,12 +192,22 @@ def generate_week_topics(
 ) -> WeeklyReview:
     """生成 2～3 个可选主题；没有模型时从用户原话提取可解释候选。"""
     week = get_or_create_week(db, week_start)
-    if week.status == WeekStatus.CLOSED.value:
+    if week.status != WeekStatus.DRAFT.value:
         raise ValueError("这一周已经收好了，不能再换主题。")
     answers = _parse_answers(week.answers_json)
-    traces, trace_days, bootstrap_topic = _require_trace_days(
-        db, week_start, answers=answers, selected_topic=week.selected_topic
-    )
+    try:
+        traces, trace_days, bootstrap_topic = _require_trace_days(
+            db, week_start, answers=answers, selected_topic=week.selected_topic
+        )
+    except Exception:
+        db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.FOLLOWUP_GENERATING.value).values(status=WeekStatus.DRAFT.value))
+        db.commit()
+        raise
+    claimed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value).values(status=WeekStatus.TOPICS_GENERATING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
+    db.commit()
     topics = _local_candidate_topics(traces, bootstrap_topic)
     if use_llm and provider is not None:
         messages = build_week_topics_messages(
@@ -207,9 +226,10 @@ def generate_week_topics(
             logger.exception("周场候选主题 LLM 失败，降级本地候选")
     if not topics:
         raise ValueError("还没找到可谈的主题。可以先写一条日痕迹，或自己填一件事。")
-    week.candidate_topics_json = _dump_topics(topics)
-    week.trace_days = trace_days
-    week.updated_at = datetime.now()
+    claimed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.TOPICS_GENERATING.value).values(candidate_topics_json=_dump_topics(topics), trace_days=trace_days, status=WeekStatus.DRAFT.value, updated_at=datetime.now()))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
     db.commit()
     db.refresh(week)
     return week
@@ -223,14 +243,15 @@ def save_week_topic(
     emotion: str = "",
 ) -> WeeklyReview:
     week = get_or_create_week(db, week_start)
-    if week.status == WeekStatus.CLOSED.value:
+    if week.status != WeekStatus.DRAFT.value:
         raise ValueError("这一周已经收好了，不能再换主题。")
     cleaned = (topic or "").strip()
     if not cleaned:
         raise ValueError("先选一件事，或自己写一个想谈的主题。")
-    week.selected_topic = cleaned[:500]
-    week.followup_emotion = (emotion or "").strip()[:40]
-    week.updated_at = datetime.now()
+    changed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value).values(selected_topic=cleaned[:500], followup_emotion=(emotion or "").strip()[:40], updated_at=datetime.now()))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再保存。")
     db.commit()
     db.refresh(week)
     return week
@@ -240,7 +261,7 @@ def save_week_answers(
     db: Session, week_start: date, answers: list[dict[str, str]]
 ) -> WeeklyReview:
     week = get_or_create_week(db, week_start)
-    if week.status == WeekStatus.CLOSED.value:
+    if week.status != WeekStatus.DRAFT.value:
         raise ValueError("这一周已经收好了，不能再改提纲。")
     current = {item["question"]: item["answer"] for item in _parse_answers(week.answers_json)}
     merged: list[dict[str, str]] = []
@@ -258,8 +279,11 @@ def save_week_answers(
     for item in merged:
         if item["question"] not in DEFAULT_WEEK_OUTLINE:
             ordered.append(item)
-    week.answers_json = _dump_answers(ordered)
-    week.updated_at = datetime.now()
+    replacement = _dump_answers(ordered)
+    changed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value, WeeklyReview.answers_json == week.answers_json).values(answers_json=replacement, updated_at=datetime.now()))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("答案已被另一处修改，请刷新后再保存。")
     db.commit()
     db.refresh(week)
     return week
@@ -280,13 +304,23 @@ def generate_week_followup(
 ) -> WeeklyReview:
     """生成【一个】周问并落库。无 Key / 失败时降级为模板轻问。"""
     week = get_or_create_week(db, week_start)
-    if week.status == WeekStatus.CLOSED.value:
+    if week.status != WeekStatus.DRAFT.value:
         raise ValueError("这一周已经收好了，不能再问。")
 
+    claimed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value).values(status=WeekStatus.FOLLOWUP_GENERATING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
+    db.commit()
     answers = _parse_answers(week.answers_json)
-    traces, trace_days, bootstrap_topic = _require_trace_days(
-        db, week_start, answers=answers, selected_topic=week.selected_topic
-    )
+    try:
+        traces, trace_days, bootstrap_topic = _require_trace_days(
+            db, week_start, answers=answers, selected_topic=week.selected_topic
+        )
+    except Exception:
+        db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.FOLLOWUP_GENERATING.value).values(status=WeekStatus.DRAFT.value))
+        db.commit()
+        raise
     selected_topic = (week.selected_topic or "").strip()
     if not selected_topic:
         fallback_topics = _local_candidate_topics(traces, bootstrap_topic)
@@ -319,10 +353,10 @@ def generate_week_followup(
         except Exception:
             logger.exception("周追问 LLM 失败，降级模板轻问")
 
-    week.followup_question = question
-    week.followup_answer = ""
-    week.trace_days = trace_days
-    week.updated_at = datetime.now()
+    changed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.FOLLOWUP_GENERATING.value).values(followup_question=question, followup_answer="", trace_days=trace_days, status=WeekStatus.DRAFT.value, updated_at=datetime.now()))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再试。")
     db.commit()
     db.refresh(week)
     return week
@@ -332,12 +366,14 @@ def save_week_followup_answer(
     db: Session, week_start: date, answer: str
 ) -> WeeklyReview:
     week = get_or_create_week(db, week_start)
-    if week.status == WeekStatus.CLOSED.value:
+    if week.status != WeekStatus.DRAFT.value:
         raise ValueError("这一周已经收好了，不能再改回答。")
     if not (week.followup_question or "").strip():
         raise ValueError("还没有本周问句。先点「问自己一句（本周）」。")
-    week.followup_answer = (answer or "").strip()
-    week.updated_at = datetime.now()
+    changed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value).values(followup_answer=(answer or "").strip(), updated_at=datetime.now()))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再保存。")
     db.commit()
     db.refresh(week)
     return week
@@ -521,7 +557,9 @@ def close_week(
 ) -> WeeklyReview:
     week = get_or_create_week(db, week_start)
     if week.status == WeekStatus.CLOSED.value:
-        return week
+        raise ConflictError("这一周已经收好了。")
+    if week.status != WeekStatus.DRAFT.value:
+        raise ConflictError("状态已变化，请刷新后再收周。")
 
     answers = _parse_answers(week.answers_json)
     traces, trace_days, _ = _require_trace_days(
@@ -534,6 +572,11 @@ def close_week(
     if not answer:
         raise ValueError("还没写下回答。这句回答是本周最要紧的资产，写完再收。")
 
+    claimed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.DRAFT.value).values(status=WeekStatus.CLOSING.value))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再收周。")
+    db.commit()
     echo, next_focus, note, raw, _ = _generate_week_close_content(
         week_start=week_start,
         followup_question=question,
@@ -547,13 +590,10 @@ def close_week(
         use_llm=use_llm,
     )
 
-    week.overview = echo
-    week.next_focus = next_focus
-    week.note = note
-    week.raw_markdown = raw
-    week.trace_days = trace_days
-    week.status = WeekStatus.CLOSED.value
-    week.updated_at = datetime.now()
+    changed = db.execute(update(WeeklyReview).where(WeeklyReview.id == week.id, WeeklyReview.status == WeekStatus.CLOSING.value).values(overview=echo, next_focus=next_focus, note=note, raw_markdown=raw, trace_days=trace_days, status=WeekStatus.CLOSED.value, updated_at=datetime.now()))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise ConflictError("状态已变化，请刷新后再收周。")
     db.commit()
     db.refresh(week)
     return week
@@ -567,6 +607,8 @@ def summarize_week(
 ) -> WeeklyReview:
     """对已有周问+回答重新做极短收束（兼容旧 summarize 路由）。"""
     week = get_or_create_week(db, week_start)
+    if week.status == WeekStatus.CLOSED.value:
+        raise ConflictError("这一周已经收好了。")
     question = (week.followup_question or "").strip()
     answer = (week.followup_answer or "").strip()
     if not question or not answer:

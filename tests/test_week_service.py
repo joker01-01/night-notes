@@ -270,7 +270,7 @@ def test_summarize_week_requires_provider() -> None:
     _add_day(db, date(2026, 7, 27), body="x")
     _ask_and_answer(db, date(2026, 7, 26))
     close_week(db, date(2026, 7, 26), use_llm=False)
-    with pytest.raises(ValueError, match="密钥"):
+    with pytest.raises(Exception, match="已经收好"):
         summarize_week(db, date(2026, 7, 26), provider=None)
 
 

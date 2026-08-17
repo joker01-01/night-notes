@@ -14,6 +14,10 @@ from app.core.database import Base
 class WeekStatus(str, Enum):
     DRAFT = "draft"
     CLOSED = "closed"
+    TOPICS_GENERATING = "topics_generating"
+    FOLLOWUP_GENERATING = "followup_generating"
+    CLOSING = "closing"
+    SUMMARIZING = "summarizing"
 
 
 # 可选热身提纲（非主菜）；主资产是 followup_question + followup_answer

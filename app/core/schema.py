@@ -32,6 +32,12 @@ _REQUIRED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("next_focus", "TEXT NOT NULL DEFAULT ''"),
         ("note", "TEXT NOT NULL DEFAULT ''"),
     ],
+    "settings": [
+        ("version", "INTEGER NOT NULL DEFAULT 1"),
+    ],
+    "summaries": [
+        ("deleted_at", "DATETIME"),
+    ],
 }
 
 

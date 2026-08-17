@@ -16,6 +16,9 @@ class SessionStatus(str, Enum):
     ANSWERED = "answered"
     FOLLOWING_UP = "following_up"
     SUMMARIZED = "summarized"
+    FOLLOWUP_GENERATING = "followup_generating"
+    DEEPENING = "deepening"
+    SUMMARIZING = "summarizing"
 
 
 class QAType(str, Enum):
@@ -71,4 +74,6 @@ class Summary(Base):
     lesson: Mapped[str] = mapped_column(Text, default="", nullable=False)
     raw_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, nullable=False)
+    # 重开不抹除历史收束；恢复入口只需清除此时间戳。
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     session: Mapped[DailySession] = relationship(back_populates="summary")

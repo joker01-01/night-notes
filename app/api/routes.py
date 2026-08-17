@@ -77,9 +77,14 @@ def _llm_http(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="服务器内部错误")
 
 
-@router.get("/health")
+@public_router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@public_router.get("/bootstrap-token")
+def bootstrap_token(request: Request) -> dict[str, str]:
+    return {"token": issue_bootstrap_token(request)}
 
 
 @router.get("/settings", response_model=SettingsOut)
@@ -89,7 +94,10 @@ def read_settings(db: Session = Depends(get_db)) -> SettingsOut:
 
 @router.put("/settings", response_model=SettingsOut)
 def write_settings(update: SettingsUpdate, db: Session = Depends(get_db)) -> SettingsOut:
-    settings = update_settings(db, update)
+    try:
+        settings = update_settings(db, update)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     review_scheduler.refresh(settings.question_time)
     return as_settings_out(settings)
 
@@ -126,6 +134,8 @@ def write_answers(day: date, payload: AnswersUpdate, db: Session = Depends(get_d
                 emotion=payload.emotion,
             )
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -148,6 +158,8 @@ def followup_answer(day: date, payload: FollowupAnswerIn, db: Session = Depends(
         raise HTTPException(status_code=404, detail="当天尚无复盘会话")
     try:
         return session_to_schema(answer_followup(db, session, payload.qa_id, payload.answer))
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -164,10 +176,14 @@ def followup_deeper(day: date, db: Session = Depends(get_db)) -> SessionOut:
 
 
 @router.post("/sessions/{day}/recoach", response_model=SessionOut)
-def recoach(day: date, db: Session = Depends(get_db)) -> SessionOut:
+def recoach(
+    day: date, payload: RecoachIn | None = None, db: Session = Depends(get_db)
+) -> SessionOut:
     session = get_session(db, day)
     if session is None:
         raise HTTPException(status_code=404, detail="当天尚无复盘会话")
+    if payload is None or not payload.confirm:
+        raise HTTPException(status_code=400, detail="重开会清除后续问答，请明确确认。")
     return session_to_schema(reset_for_recoach(db, session))
 
 
@@ -230,6 +246,8 @@ def write_week_answers(
             week_start_for(week_start),
             [item.model_dump() for item in payload.answers],
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return WeekOut.model_validate(week_to_payload(db, week))
@@ -256,6 +274,8 @@ def generate_week_followup_route(
             provider=provider,
             use_llm=use_llm and provider is not None,
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -284,6 +304,8 @@ def generate_week_topics_route(
             provider=provider,
             use_llm=use_llm and provider is not None,
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -302,6 +324,8 @@ def write_week_topic(
             payload.topic,
             emotion=payload.emotion,
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return WeekOut.model_validate(week_to_payload(db, week))
@@ -315,6 +339,8 @@ def write_week_followup_answer(
         week = save_week_followup_answer(
             db, week_start_for(week_start), payload.answer
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return WeekOut.model_validate(week_to_payload(db, week))
@@ -341,6 +367,8 @@ def close_week_route(
             provider=provider,
             use_llm=use_llm and provider is not None,
         )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return WeekOut.model_validate(week_to_payload(db, week))
@@ -355,6 +383,8 @@ def summarize_week_route(week_start: date, db: Session = Depends(get_db)) -> Wee
         provider = None
     try:
         week = summarize_week(db, week_start_for(week_start), provider=provider)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

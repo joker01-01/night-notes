@@ -108,8 +108,10 @@ def test_deepen_and_recoach() -> None:
     session = summarize_session(db, session, provider, skip=False)
     reset = reset_for_recoach(db, session)
     assert reset.status == "answered"
-    assert reset.summary is None
-    assert all(qa.qa_type == "fixed" for qa in reset.qas)
+    assert reset.summary is not None
+    assert reset.summary.deleted_at is not None
+    # 自问与收束都保留在库中，便于后续恢复昨日收束。
+    assert any(qa.qa_type == "followup" for qa in reset.qas)
     assert reset.qas[0].answer == "继续推进项目"
 
 

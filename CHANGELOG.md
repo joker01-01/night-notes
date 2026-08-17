@@ -5,6 +5,10 @@
 - [2026-08-17] fix/security FIX-3: 容器默认仅绑定 127.0.0.1，并对非回环绑定给出告警。
 - [2026-08-17] fix/security FIX-5: LLM 出口限定 HTTPS 白名单，拒绝 userinfo 与私有地址。
 - [2026-08-17] fix/security FIX-6: LLM HTTP 客户端禁用环境代理与重定向。
+- [2026-08-17] fix/security FIX-8: 日、周状态迁移使用条件 UPDATE，竞态改为明确 409。
+- [2026-08-17] fix/security FIX-9: 已收束的日/周记录拒绝再次触发收束。
+- [2026-08-17] fix/security FIX-10: LLM 触发路径为单状态占位，避免并发重复消费。
+- [2026-08-17] fix/security FIX-11: 重开需显式确认，收束改为带删除时间戳的软删除。
 
 - [2026-08-12] feat/mobile: Flutter Android 试用版同步完成：Drift 本地数据库、旧 SharedPreferences 条件迁移、每日情绪与可选追问、周候选主题与完整收束、历史只读回看、可选 DeepSeek 与本地兜底；生成 release APK。
 
