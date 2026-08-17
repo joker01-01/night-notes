@@ -21,6 +21,7 @@ class Settings(Base):
     question_time: Mapped[str] = mapped_column(String(5), nullable=False)
     context_days: Mapped[int] = mapped_column(Integer, nullable=False)
     question_templates: Mapped[str] = mapped_column(Text, nullable=False)  # JSON 字符串
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
     )

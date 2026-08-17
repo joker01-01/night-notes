@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_config
+from app.core.errors import ConflictError
+from app.core.llm_security import validate_llm_base_url
+from app.core.secrets import decrypt_secret, encrypt_secret, is_encrypted
 from app.llm import ProviderConfig, create_provider
 from app.models import Settings
 from app.schemas import SettingsOut, SettingsUpdate
@@ -30,6 +34,10 @@ def get_or_create_settings(db: Session) -> Settings:
     settings = db.scalar(select(Settings).where(Settings.id == 1))
     defaults = get_config()
     if settings is not None:
+        if settings.llm_api_key and not is_encrypted(settings.llm_api_key):
+            settings.llm_api_key = encrypt_secret(settings.llm_api_key)
+            db.commit()
+            db.refresh(settings)
         # 自动修复曾被错误编码写成 ???? 的问题模板，避免设置页与降级提问继续乱码。
         if _templates_look_corrupted(settings.question_templates):
             settings.question_templates = json.dumps(defaults.question_templates, ensure_ascii=False)
@@ -39,15 +47,23 @@ def get_or_create_settings(db: Session) -> Settings:
     settings = Settings(
         id=1,
         llm_provider=defaults.llm_provider,
-        llm_api_key=defaults.llm_api_key,
+        llm_api_key=encrypt_secret(defaults.llm_api_key),
         llm_base_url=defaults.llm_base_url,
         llm_model=defaults.llm_model,
         question_time=defaults.question_time,
         context_days=defaults.context_days,
         question_templates=json.dumps(defaults.question_templates, ensure_ascii=False),
+        version=1,
     )
     db.add(settings)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(Settings).where(Settings.id == 1))
+        if existing is not None:
+            return existing
+        raise
     db.refresh(settings)
     return settings
 
@@ -62,21 +78,35 @@ def as_settings_out(settings: Settings) -> SettingsOut:
         question_time=settings.question_time,
         context_days=settings.context_days,
         question_templates=json.loads(settings.question_templates),
+        version=settings.version,
         api_key_configured=bool(settings.llm_api_key),
     )
 
 
 def update_settings(db: Session, update: SettingsUpdate) -> Settings:
     settings = get_or_create_settings(db)
-    settings.llm_provider = update.llm_provider
+    if update.version is not None and update.version != settings.version:
+        raise ConflictError("设置已被另一处修改，请先重新读取后再保存。")
+    fields = update.model_fields_set
+    provider = update.llm_provider if "llm_provider" in fields else settings.llm_provider
+    base_url = update.llm_base_url if "llm_base_url" in fields else settings.llm_base_url
+    validate_llm_base_url(base_url, provider)
+    if "llm_provider" in fields:
+        settings.llm_provider = update.llm_provider
     # 设置页面留空时保持原密钥，避免读取接口泄漏并防止误清除。
-    if update.llm_api_key:
-        settings.llm_api_key = update.llm_api_key
-    settings.llm_base_url = update.llm_base_url
-    settings.llm_model = update.llm_model
-    settings.question_time = update.question_time
-    settings.context_days = update.context_days
-    settings.question_templates = json.dumps(update.question_templates, ensure_ascii=False)
+    if "llm_api_key" in fields and update.llm_api_key:
+        settings.llm_api_key = encrypt_secret(update.llm_api_key)
+    if "llm_base_url" in fields:
+        settings.llm_base_url = update.llm_base_url
+    if "llm_model" in fields:
+        settings.llm_model = update.llm_model
+    if "question_time" in fields:
+        settings.question_time = update.question_time
+    if "context_days" in fields:
+        settings.context_days = update.context_days
+    if "question_templates" in fields:
+        settings.question_templates = json.dumps(update.question_templates, ensure_ascii=False)
+    settings.version += 1
     db.commit()
     db.refresh(settings)
     return settings
@@ -88,12 +118,12 @@ def get_templates(settings: Settings) -> list[str]:
 
 def get_provider(db: Session):
     settings = get_or_create_settings(db)
+    validate_llm_base_url(settings.llm_base_url, settings.llm_provider)
     return create_provider(
         ProviderConfig(
             provider=settings.llm_provider,
-            api_key=settings.llm_api_key,
+            api_key=decrypt_secret(settings.llm_api_key),
             base_url=settings.llm_base_url,
             model=settings.llm_model,
         )
     )
-

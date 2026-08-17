@@ -13,6 +13,10 @@
 - [2026-08-17] fix/security FIX-7: 打开本周页仅生成本地候选，AI 联网改为明确点击。
 - [2026-08-17] fix/security FIX-12: API 请求体限制为 1MB，集合与模板条目均设上限。
 - [2026-08-17] fix/security FIX-13: 增加拒绝嵌入、CSP 与 API no-store 响应头。
+- [2026-08-17] fix/security FIX-14: Web 与 Android 的提示词把夜记内容置于不受信任的数据定界中。
+- [2026-08-17] fix/security FIX-15: Web 密钥改为 DPAPI/Fernet 加密；Android 禁止备份与 debug release 签名。
+- [2026-08-17] fix/security FIX-16: Python 依赖改为精确版本并显式锁定 Starlette。
+- [2026-08-17] fix/security FIX-17: 设置更新仅应用显式字段，并附带版本字段。
 
 - [2026-08-12] feat/mobile: Flutter Android 试用版同步完成：Drift 本地数据库、旧 SharedPreferences 条件迁移、每日情绪与可选追问、周候选主题与完整收束、历史只读回看、可选 DeepSeek 与本地兜底；生成 release APK。
 
