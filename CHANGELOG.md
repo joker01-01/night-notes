@@ -1,5 +1,11 @@
 # CHANGELOG
 
+- [2026-08-17] fix/security FIX-1: API 改为本机一次性初始化令牌鉴权，Web 请求统一携带 Bearer token。
+- [2026-08-17] fix/security FIX-2: 增加受信任 Host 校验，拒绝 DNS rebinding Host。
+- [2026-08-17] fix/security FIX-3: 容器默认仅绑定 127.0.0.1，并对非回环绑定给出告警。
+- [2026-08-17] fix/security FIX-5: LLM 出口限定 HTTPS 白名单，拒绝 userinfo 与私有地址。
+- [2026-08-17] fix/security FIX-6: LLM HTTP 客户端禁用环境代理与重定向。
+
 - [2026-08-12] feat/mobile: Flutter Android 试用版同步完成：Drift 本地数据库、旧 SharedPreferences 条件迁移、每日情绪与可选追问、周候选主题与完整收束、历史只读回看、可选 DeepSeek 与本地兜底；生成 release APK。
 
 - [2026-08-12] feat/pilot: Web/PWA 补齐试用闭环：日轨情绪-only 痕迹、2～3 个周场候选主题、用户自选/自定义主题、周场情绪、冷启动自定义主题、有限周场承接，并补充迁移与自动化测试。

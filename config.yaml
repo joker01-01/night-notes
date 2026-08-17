@@ -8,3 +8,6 @@ question_time: "21:00"
 context_days: 7
 # 每日四问制已废案：不再作为建会话出题。可留空，或作「可选自问」内部种子（不驱动每晚出题）。
 question_templates: []
+# 自建 OpenAI 兼容服务须在此明确登记域名；默认只允许 DeepSeek。
+llm_allowed_hosts:
+  - api.deepseek.com

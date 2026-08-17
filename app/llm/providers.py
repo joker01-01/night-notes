@@ -47,12 +47,12 @@ class OpenAICompatibleProvider:
             raise LLMRequestError("尚未配置 LLM API Key，请在设置页填写后重试。")
         url = f"{self.config.base_url.rstrip('/')}/chat/completions"
         try:
-            response = httpx.post(
-                url,
-                headers={"Authorization": f"Bearer {self.config.api_key}"},
-                json={"model": self.config.model, "messages": messages, "temperature": 0.4},
-                timeout=60,
-            )
+            with httpx.Client(trust_env=False, follow_redirects=False, timeout=60) as client:
+                response = client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {self.config.api_key}"},
+                    json={"model": self.config.model, "messages": messages, "temperature": 0.4},
+                )
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             if not content:
@@ -79,11 +79,11 @@ class OllamaProvider:
     def chat(self, messages: list[ChatMessage]) -> str:
         url = f"{self.config.base_url.rstrip('/')}/api/chat"
         try:
-            response = httpx.post(
-                url,
-                json={"model": self.config.model, "messages": messages, "stream": False},
-                timeout=120,
-            )
+            with httpx.Client(trust_env=False, follow_redirects=False, timeout=120) as client:
+                response = client.post(
+                    url,
+                    json={"model": self.config.model, "messages": messages, "stream": False},
+                )
             response.raise_for_status()
             return str(response.json()["message"]["content"])
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -99,4 +99,3 @@ def create_provider(config: ProviderConfig) -> LLMProvider:
     if normalized == "ollama":
         return OllamaProvider(config)
     raise LLMRequestError(f"不支持的 LLM Provider：{config.provider}")
-

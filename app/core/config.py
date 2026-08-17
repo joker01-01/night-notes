@@ -32,6 +32,9 @@ class AppConfig(BaseSettings):
     question_time: str = "21:00"
     context_days: int = Field(default=7, ge=1, le=90)
     question_templates: list[str] = Field(default_factory=list)
+    bind_host: str = "127.0.0.1"
+    allow_lan: bool = False
+    llm_allowed_hosts: list[str] = Field(default_factory=lambda: ["api.deepseek.com"])
 
 
 def _yaml_defaults() -> dict[str, Any]:

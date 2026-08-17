@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from urllib.parse import urlparse
+from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+from app.core.llm_security import validate_llm_base_url
+
+
+BoundedText = Annotated[str, Field(max_length=2000)]
 
 
 class QAOut(BaseModel):
@@ -44,7 +49,7 @@ class AnswerInput(BaseModel):
 
 
 class AnswersUpdate(BaseModel):
-    answers: list[AnswerInput]
+    answers: list[AnswerInput] = Field(max_length=24)
     emotion: str = Field(default="", max_length=40)
 
 
@@ -57,6 +62,10 @@ class SummarizeIn(BaseModel):
     skip: bool = False
 
 
+class RecoachIn(BaseModel):
+    confirm: bool = False
+
+
 class SettingsUpdate(BaseModel):
     llm_provider: str = Field(default="deepseek", max_length=40)
     llm_api_key: str = Field(default="", max_length=500)
@@ -65,7 +74,8 @@ class SettingsUpdate(BaseModel):
     question_time: str = Field(default="21:00", max_length=8)
     context_days: int = Field(default=7, ge=1, le=90)
     # 可选自问参考种子；允许空。每日四问已废案，不驱动建会话出题。
-    question_templates: list[str] = Field(default_factory=list, max_length=12)
+    question_templates: list[BoundedText] = Field(default_factory=list, max_length=24)
+    version: int | None = Field(default=None, ge=0)
 
     @field_validator("question_time")
     @classmethod
@@ -84,11 +94,9 @@ class SettingsUpdate(BaseModel):
 
     @field_validator("llm_base_url")
     @classmethod
-    def validate_base_url(cls, value: str) -> str:
-        parsed = urlparse(value.strip())
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("Base URL 仅支持 http/https，且必须包含主机名")
-        return value.strip().rstrip("/")
+    def validate_base_url(cls, value: str, info: ValidationInfo) -> str:
+        provider = str(info.data.get("llm_provider") or "deepseek")
+        return validate_llm_base_url(value, provider)
 
     @field_validator("question_templates")
     @classmethod
@@ -97,6 +105,7 @@ class SettingsUpdate(BaseModel):
 
 
 class SettingsOut(SettingsUpdate):
+    version: int = 1
     api_key_configured: bool
 
 
@@ -111,7 +120,7 @@ class WeekAnswerItem(BaseModel):
 
 
 class WeekAnswersUpdate(BaseModel):
-    answers: list[WeekAnswerItem] = Field(min_length=1, max_length=12)
+    answers: list[WeekAnswerItem] = Field(min_length=1, max_length=24)
 
 
 class WeekFollowupIn(BaseModel):

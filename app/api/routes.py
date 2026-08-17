@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 
+from app.core.auth import bootstrap_token as issue_bootstrap_token, require_auth
 from app.core.database import get_db
+from app.core.errors import ConflictError
 from app.llm.providers import LLMRequestError
 from app.models import DailySession
 from app.scheduler import review_scheduler
@@ -14,6 +16,7 @@ from app.schemas import (
     AnswersUpdate,
     CalendarDay,
     FollowupAnswerIn,
+    RecoachIn,
     SessionOut,
     SettingsOut,
     SettingsUpdate,
@@ -58,10 +61,13 @@ from app.services.week_service import (
 )
 
 
-router = APIRouter(prefix="/api")
+public_router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
 
 
 def _llm_http(exc: Exception) -> HTTPException:
+    if isinstance(exc, ConflictError):
+        return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, LLMRequestError):
         return HTTPException(status_code=502, detail="模型服务暂时不可用，请稍后重试。")
     if isinstance(exc, ValueError):

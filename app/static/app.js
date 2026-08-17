@@ -18,6 +18,7 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const EMOTIONS = ["轻松", "期待", "犹豫", "负担", "烦躁", "想靠近", "想逃开", "说不清"];
 const REMINDER_KEY = "night-weekly-reminder";
+const AUTH_TOKEN_KEY = "night-api-token";
 
 function renderEmotionPicker(selector, current, onChange, disabled = false) {
   const picker = $(selector);
@@ -112,7 +113,20 @@ function formatApiError(detail, fallback = "请求失败，请稍后重试。") 
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...options });
+  let token = sessionStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token && path !== "/bootstrap-token") {
+    const bootstrap = await fetch("/api/bootstrap-token", { cache: "no-store" });
+    const bootstrapBody = await bootstrap.json().catch(() => ({}));
+    if (!bootstrap.ok || !bootstrapBody.token) {
+      throw new Error("本机访问令牌不可用。请使用初次打开夜记的浏览器会话。")
+    }
+    token = bootstrapBody.token;
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+  }
+  const headers = new Headers(options.headers || {});
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`/api${path}`, { ...options, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(formatApiError(body.detail));
   return body;
