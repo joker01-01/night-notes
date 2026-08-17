@@ -769,7 +769,8 @@ async function renderWeekShell(force = false) {
   ) {
     const withTopics = await api("/weeks/" + week.week_start + "/topics", {
       method: "POST",
-      body: JSON.stringify({ use_llm: true }),
+      // 打开本周页只从本地痕迹提取候选；联网由用户点击按钮明确触发。
+      body: JSON.stringify({ use_llm: false }),
     });
     applyWeekView(withTopics);
   }

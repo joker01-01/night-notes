@@ -642,7 +642,8 @@ class _WeekPageState extends State<WeekPage> {
     if (!current.isClosed &&
         current.candidateTopics.isEmpty &&
         _traceDays > 0) {
-      await _generateTopics();
+      // 打开本周页只生成本地候选，不在未点击时外发夜记内容。
+      await _persist(candidateTopics: localCandidateTopics(_weekDaily));
     }
   }
 

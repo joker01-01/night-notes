@@ -45,7 +45,7 @@ async def request_security_boundary(request: Request, call_next):
                 except ValueError:
                     too_large = True
                 if too_large:
-                    return JSONResponse(status_code=413, content={"detail": "请求体过大。"})
+                    return JSONResponse(status_code=422, content={"detail": "请求体过大。"})
 
     response = await call_next(request)
     response.headers.setdefault("X-Frame-Options", "DENY")
