@@ -1,6 +1,8 @@
 # 夜记 Android 试用版
 
-这是夜记的 Flutter Android 本地优先试用版，面向首轮 10～15 位朋友的两周试用。
+Flutter Android local-first trial of Night Notes.
+
+这是夜记的 Flutter Android 本地优先试用版，用于小范围朋友试用。不要把它读成已发布的商店产品或已验证的用户规模。
 
 ## 已包含
 
@@ -9,6 +11,7 @@
 - 历史：每日记录与周场结果按时间回看，默认只读。
 - 设置：可选填写 DeepSeek API Key；没有 Key 也能使用本地问题和本地收束。
 - 数据：完整记录保存在设备 Drift SQLite；首次启动只在检测到旧数据时迁移旧版 JSON。
+- Key：`FlutterSecureStorage`（Android Keystore）。旧版明文 `SharedPreferences` 会在读取时迁走并删除。
 
 ## 本地运行
 
@@ -26,4 +29,4 @@ flutter build apk --release
 
 产物位于 `build/app/outputs/flutter-apk/app-release.apk`。
 
-本轮明确不包含账号、云同步、自动通知、导出/导入和 API Key 加密存储；这些留到试用反馈后处理。
+本轮不包含账号、云同步、自动通知、导出/导入。移动端当前只对接 DeepSeek，没有 Ollama / OpenAI-compatible 切换。

@@ -32,8 +32,8 @@
 **当前落地状态（2026-08-12）：**
 - Flutter Android 试用版已落地「今晚 / 本周 / 历史 / 设置」四条主路径。
 - Android 端使用 Drift SQLite 保存完整日/周问答；首次启动检测到旧 SharedPreferences 数据才迁移。
-- DeepSeek Key 可选且暂存本机偏好设置；无 Key 或请求失败时使用本地问题与保守收束。
-- 本轮暂不加入通知、导出、云同步和 Keystore；先服务十几位朋友的两周试用。
+- DeepSeek Key 可选；Android 端使用 `FlutterSecureStorage`（Keystore），并从旧版明文 `SharedPreferences` 迁走。无 Key 或请求失败时使用本地问题与保守收束。
+- 本轮暂不加入通知、导出和云同步；试用范围保持小范围，不作为已发布用户规模。
 
 ## 2. 要解决的问题
 

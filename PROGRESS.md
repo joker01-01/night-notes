@@ -41,7 +41,7 @@
 - [x] 日场主路径已拆除四问默认；旧多题 QA 仅兼容读取。
 - [x] 周场追问闭环：问→答→短收束；0 天拒收、缺日可收。
 - [ ] Web 原型 API Key 明文存 SQLite；正式 Alembic 迁移仍属 P2。
-- [ ] Flutter API Key 当前存本地偏好设置；正式发布前迁移到 Android Keystore / iOS Keychain。
+- [x] Flutter API Key 使用 `FlutterSecureStorage`（Android Keystore），并从旧版明文 `SharedPreferences` 迁走。
 - [ ] Flutter 暂未加入本地通知、导出/导入、云同步（均不在首轮试用范围）。
 - [ ] 定时任务依赖进程常驻；尚无浏览器/外部通知渠道。
 - [ ] 未加入登录/多用户隔离（非目标）。
