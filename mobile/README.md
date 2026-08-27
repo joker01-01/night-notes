@@ -1,6 +1,55 @@
-# 夜记 Android 试用版
+<p>
+  <a href="#english"><kbd>&nbsp;English&nbsp;</kbd></a>
+  &nbsp;
+  <a href="#zhong-wen"><kbd>&nbsp;中文&nbsp;</kbd></a>
+</p>
 
-Flutter Android local-first trial of Night Notes.
+<a id="english"></a>
+
+# Night Notes Android trial
+
+Flutter Android local-first trial of Night Notes. Small private trial — not a store release and not a user-count claim.
+
+## Included
+
+- Tonight: text or emotion only; AI follow-up only when there is text
+- This week: 2–3 candidate topics, custom topic, weekly question, answer, echo, next step
+- History: read-only daily and weekly records
+- Settings: optional DeepSeek API key; local questions if the key is missing
+- Data: Drift SQLite on device; legacy JSON migrates only when old data is found
+- Key: `FlutterSecureStorage` (Android Keystore), with a one-time move off plaintext `SharedPreferences`
+
+## Run
+
+```bash
+flutter pub get
+dart run build_runner build
+flutter run
+```
+
+## Release APK
+
+```bash
+flutter build apk --release
+```
+
+Output: `build/app/outputs/flutter-apk/app-release.apk`.
+
+No accounts, cloud sync, notifications, or import/export in this trial. The mobile client talks to DeepSeek only — no Ollama / OpenAI-compatible switch.
+
+---
+
+<a id="zhong-wen"></a>
+
+# 中文
+
+<p>
+  <a href="#english"><kbd>&nbsp;English&nbsp;</kbd></a>
+  &nbsp;
+  <a href="#zhong-wen"><kbd>&nbsp;中文&nbsp;</kbd></a>
+</p>
+
+# 夜记 Android 试用版
 
 这是夜记的 Flutter Android 本地优先试用版，用于小范围朋友试用。不要把它读成已发布的商店产品或已验证的用户规模。
 
