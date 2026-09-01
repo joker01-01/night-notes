@@ -1,5 +1,13 @@
 # Night Notes / 夜记
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-800080?style=flat-square)](LICENSE)
+![Surfaces: Android | Web](https://img.shields.io/badge/Surfaces-Android%20%7C%20Web-3DDC84?style=flat-square&logo=android&logoColor=white)
+![Stack: Flutter | FastAPI](https://img.shields.io/badge/Stack-Flutter%20%7C%20FastAPI-02569B?style=flat-square)
+![Storage: SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Design: Local First](https://img.shields.io/badge/Design-Local%20First-6A1B9A?style=flat-square)
+![AI: Optional](https://img.shields.io/badge/AI-Optional-D97706?style=flat-square)
+[![CI](https://github.com/joker01-01/night-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/joker01-01/night-notes/actions/workflows/ci.yml)
+
 > **What should still work when the AI doesn't?**
 
 Night Notes is a local-first reflection app built around a simple product rule: **the ritual should still work without the model.**
